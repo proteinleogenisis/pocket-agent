@@ -6,6 +6,7 @@ import { parseSlash, runTool, needsRouter, buildMessages, TOOLS, parseTransform,
 import { runJS, runPython } from '../js/sandbox.js';
 import { llm } from '../js/llm.js';
 import { parseAction, parseBuild, buildAndRun, files } from '../js/actions.js';
+import { parseWeb, normalize } from '../js/web.js';
 import { permissionFor } from '../js/agent.js';
 const results = []; let pass = 0, fail = 0;
 const t = async (name, fn) => { document.getElementById('out').textContent = `running: ${name}\n` + results.join('\n'); try { await fn(); results.push('✓ ' + name); pass++; } catch (e) { results.push('✗ ' + name + ' — ' + (e?.message || e)); fail++; } };
@@ -144,6 +145,28 @@ await t('build loop fixes its own error', async () => {
   eq([res.ok, res.attempts, /NameError/.test(prompts[1]), /✓ Ran successfully after fixing 1 error/.test(res.text), /\b10\b/.test(res.text)], [true, 2, true, true, true]);
 });
 await t('build phrasing detected', () => eq([parseBuild('write a python program that prints primes and run it')?.lang, parseBuild('make a js script that reverses a string then test it')?.lang, parseBuild('write a function that reverses a string')], ['python', 'javascript', null]));
+await t('natural phrasing for opening and searching', () => {
+  const U = (q) => parseWeb(q)?.value?.url || null;
+  const cases = [
+    ['open google', 'x-safari-https://www.google.com'], ['can you open google?', 'x-safari-https://www.google.com'],
+    ['hey could you please pull up youtube for me', 'x-safari-https://www.youtube.com'], ['I want to go to reddit', 'x-safari-https://www.reddit.com'],
+    ['take me to gmail', 'x-safari-https://mail.google.com'], ['launch the chatgpt website', 'x-safari-https://chatgpt.com'],
+    ['youtube', 'x-safari-https://www.youtube.com'], ['open notes', 'mobilenotes://'], ['open the settings app', 'App-prefs:'],
+    ['go to example.org/docs', 'x-safari-https://example.org/docs'],
+    ['search youtube for lofi music', 'x-safari-https://www.youtube.com/results?search_query=lofi%20music'],
+    ['cats on youtube', 'x-safari-https://www.youtube.com/results?search_query=cats'],
+    ['look up black holes on wikipedia', 'x-safari-https://en.wikipedia.org/w/index.php?search=black%20holes'],
+    ['find usb-c cables on amazon', 'x-safari-https://www.amazon.com/s?k=usb-c%20cables'],
+    ['google how to center a div', 'x-safari-https://www.google.com/search?q=how%20to%20center%20a%20div'],
+    ['search the web for webgpu ipad', 'x-safari-https://www.google.com/search?q=webgpu%20ipad'],
+    ['play never gonna give you up on youtube', 'x-safari-https://www.youtube.com/results?search_query=never%20gonna%20give%20you%20up'],
+    ['open coolmathgames', 'x-safari-https://duckduckgo.com/?q=!ducky%20coolmathgames'],
+    ['take me to the library', null], ['search my notes for eggs', null], ['show my files', null], ['what is a closure', null], ['open it', null],
+  ];
+  const bad = cases.filter(([q, want]) => U(q) !== want).map(([q, want]) => `${q} → ${U(q)} (want ${want})`);
+  if (bad.length) throw new Error(bad.join(' ; '));
+});
+await t('normalize strips politeness', () => eq([normalize('Hey, can you please open Google for me?'), normalize('could you open the notes app please')], ['open Google', 'open the notes app']));
 document.getElementById('out').textContent = `${pass} passed, ${fail} failed\n\n` + results.join('\n');
 window.__tests = { pass, fail, results };
 </script>

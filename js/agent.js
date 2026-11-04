@@ -8,6 +8,8 @@ import { calculate, looksLikeMath, mathFromWords } from './calc.js';
 import { runJS, runPython } from './sandbox.js';
 import { store } from './store.js';
 import { ACTION_TOOLS, parseAction, parseBuild, buildAndRun } from './actions.js';
+import { APP_SCHEMES, SITES, resolveOpenTarget, parseWeb, allowedOpenURL, normalize } from './web.js';
+export { APP_SCHEMES, resolveOpenTarget };
 
 // ---------- Tool registry ----------
 const TRANSFORMS = {
@@ -103,9 +105,10 @@ export const TOOLS = {
     desc: 'Open an iPad app or website (iPadOS may ask before switching apps). Can\'t control the app after it opens.',
     risk: 'safe', usage: '/open safari · /open example.com',
     validate: (i) => {
+      if (i.value?.url) return allowedOpenURL(i.value.url) ? { ok: true, value: i.value } : { ok: false, error: 'That kind of link can\'t be opened' };
       const s = str(i.input, 300, 'App or address'); if (!s.ok) return s;
-      const target = resolveOpenTarget(s.value);
-      return target ? { ok: true, value: target } : { ok: false, error: `I don't know how to open “${s.value.trim()}”. I can open: ${Object.keys(APP_SCHEMES).join(', ')}, or any web address` };
+      const target = resolveOpenTarget(s.value) || parseWeb('open ' + s.value)?.value;
+      return target ? { ok: true, value: target } : { ok: false, error: `I don't know how to open “${s.value.trim()}”` };
     },
     run: async ({ name, url }) => {
       openURL(url);
@@ -130,21 +133,6 @@ export const TOOLS = {
 };
 Object.assign(TOOLS, ACTION_TOOLS);
 
-// iPadOS URL schemes for built-in apps. Opening from a web page is handled by the OS.
-export const APP_SCHEMES = {
-  safari: 'x-safari-https://www.google.com', shortcuts: 'shortcuts://', music: 'music://', maps: 'maps://',
-  mail: 'message://', messages: 'sms:', facetime: 'facetime://', calendar: 'calshow://', notes: 'mobilenotes://',
-  reminders: 'x-apple-reminderkit://', photos: 'photos-redirect://', files: 'shareddocuments://', podcasts: 'podcasts://',
-  books: 'ibooks://', 'app store': 'itms-apps://', tv: 'videos://', freeform: 'freeform://', news: 'applenews://',
-  settings: 'App-prefs:', 'apple music': 'music://',
-};
-export function resolveOpenTarget(raw) {
-  const t = raw.trim().toLowerCase().replace(/^(the\s+)?/, '').replace(/\s+app$/, '').replace(/[.!?]+$/, '');
-  if (APP_SCHEMES[t]) return { name: t.replace(/\b\w/g, (c) => c.toUpperCase()), url: APP_SCHEMES[t] };
-  const m = /^(https?:\/\/)?([a-z0-9-]+(\.[a-z0-9-]+)+)(\/\S*)?$/i.exec(raw.trim());
-  if (m) { const url = (m[1] || 'https://') + m[2] + (m[4] || ''); return { name: url, url: 'x-safari-' + url } ; }
-  return null;
-}
 export function openURL(url) { (window.__openURL || ((u) => { location.href = u; }))(url); }
 
 function stripFence(s) {
@@ -195,7 +183,7 @@ export function parseSlash(text) {
 }
 
 // ---------- Router ----------
-const TOOL_HINT = /\b(calc|calculate|compute|what is \d|how much is|\d\s*[-+*/^%]\s*\d|run|execute|python|javascript|\bjs\b|note|notes|remember this|save|delete|shortcut|uppercase|lowercase|base64|url ?encode|url ?decode|format (this )?json|minify|sort (these |the )?lines|count (the )?words|snake.?case|camel.?case|title case)\b/i;
+const TOOL_HINT = /\b(open|launch|go to|visit|pull up|website|site|calc|calculate|compute|what is \d|how much is|\d\s*[-+*/^%]\s*\d|run|execute|python|javascript|\bjs\b|note|notes|remember this|save|delete|shortcut|uppercase|lowercase|base64|url ?encode|url ?decode|format (this )?json|minify|sort (these |the )?lines|count (the )?words|snake.?case|camel.?case|title case)\b/i;
 
 // Requests to write/explain/fix code are answers, even if they name a language.
 const ANSWER_INTENT = /^\s*(please\s+|can you\s+|could you\s+)?(write|create|generate|implement|make|build|code|explain|describe|fix|debug|refactor|review|improve|optimi[sz]e|translate|convert (this|the|my)?\s*(code|function)|what does|why|how (do|does|can|to|would))\b/i;
@@ -334,9 +322,12 @@ export async function handle({ text, llm, settings, history, screen, attachment 
     });
   }
 
+  // Opening apps/sites and web searches, in natural phrasing ("can you pull up youtube").
+  if (!call) call = parseWeb(text);
+
   // Actions in other apps, clipboard and files: fixed phrases, never guessed by the model.
   if (!call) {
-    const a = parseAction(text, { history, attachment });
+    const a = parseAction(normalize(text), { history, attachment });
     if (a?.error) return { kind: 'error', text: a.error };
     if (a) {
       if (a.draft && (llm.ready || llm.recoverable)) {
@@ -365,12 +356,6 @@ export async function handle({ text, llm, settings, history, screen, attachment 
     // "run/execute (this) python|javascript: <code>" → run exactly that code, no model involved.
     const r = /^\s*(please\s+)?(run|execute|eval(uate)?)\s+(this\s+|the\s+following\s+)?(python3?|py|javascript|js)(\s+code)?\s*:\s*([\s\S]+)$/i.exec(text);
     if (r) call = { tool: /^py/i.test(r[5]) ? 'run_python' : 'run_javascript', input: r[7] };
-  }
-  if (!call) {
-    const o = /^\s*(please\s+)?(open|launch|start|go to|visit)\s+(.+)$/i.exec(text);
-    if (o && resolveOpenTarget(o[3])) call = { tool: 'open_app', input: o[3] };
-    const w = /^\s*(please\s+)?(search|google|look up)\s+(the web\s+|online\s+|google\s+)?(for\s+)?(.+)$/i.exec(text);
-    if (!call && w && !/\bnotes?\b/i.test(text)) call = { tool: 'open_app', input: 'https://www.google.com/search?q=' + encodeURIComponent(w[5]) };
   }
   // "What can you do?" gets a real answer, not a guess from a tiny model.
   if (!call && /^\s*(what (else )?(can|do) you do|what are you|help|what are your (skills|capabilities|features)|who are you)\b/i.test(text)) {

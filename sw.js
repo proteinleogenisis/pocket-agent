@@ -1,6 +1,6 @@
 // Offline support: precaches the app shell and vendored engines (OCR, Python, model runtime).
 // Model weights are cached separately by WebLLM; this worker never touches them.
-const VERSION = '0a44451a7a88';
+const VERSION = 'e78b61f2bda4';
 const CACHE = `pocket-agent-${VERSION}`;
 const FILES = [
   "./",
@@ -19,6 +19,7 @@ const FILES = [
   "js/sandbox-py-worker.js",
   "js/sandbox.js",
   "js/store.js",
+  "js/web.js",
   "manifest.webmanifest",
   "styles.css",
   "vendor/pyodide/pyodide-lock.json",
