@@ -449,7 +449,7 @@ export async function handle({ text, llm, settings, history, screen, attachment 
   const { text: out, stats } = await llm.stream(messages, { onToken: ui.token, temperature: settings.temperature, maxTokens: answerTokens(settings) });
   if (ref) return { kind: 'answer', text: `${out.trim()}\n\nSource: [${ref.title} — Wikipedia](${ref.url})`, stats, online: ['Wikipedia'] };
   // Wikipedia unreachable (offline, or blocked on this network): say the answer is unverified instead of sounding sure.
-  if (unchecked) return { kind: 'answer', text: `${out.trim()}\n\n_⚠️ Not verified — couldn't reach Wikipedia on this network, and small on-device models often get facts wrong._`, stats };
+  if (unchecked) return { kind: 'answer', text: `${out.trim()}\n\n⚠️ Not verified — couldn't reach Wikipedia on this network, and small on-device models often get facts wrong.`, stats };
   return { kind: 'answer', text: out, stats };
 }
 
