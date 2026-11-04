@@ -7,6 +7,7 @@ import { runJS, runPython } from '../js/sandbox.js';
 import { llm } from '../js/llm.js';
 import { parseAction, parseBuild, buildAndRun, files } from '../js/actions.js';
 import { parseWeb, normalize } from '../js/web.js';
+import { parseNet, weather, currency, webSearch, readPage, define, stackOverflow, packageInfo } from '../js/net.js';
 import { permissionFor } from '../js/agent.js';
 const results = []; let pass = 0, fail = 0;
 const t = async (name, fn) => { document.getElementById('out').textContent = `running: ${name}\n` + results.join('\n'); try { await fn(); results.push('✓ ' + name); pass++; } catch (e) { results.push('✗ ' + name + ' — ' + (e?.message || e)); fail++; } };
@@ -167,6 +168,26 @@ await t('natural phrasing for opening and searching', () => {
   if (bad.length) throw new Error(bad.join(' ; '));
 });
 await t('normalize strips politeness', () => eq([normalize('Hey, can you please open Google for me?'), normalize('could you open the notes app please')], ['open Google', 'open the notes app']));
+await t('internet phrasing', () => {
+  const N = (q) => { const r = parseNet(normalize(q)); return r ? r.tool + ' ' + JSON.stringify(r.value) : null; };
+  eq([N('search the web for webgpu on ipad'), N('look up rust ownership online'), N('summarize https://example.com/post'), N('what does https://a.dev/x say about caching?'),
+      N("what's the weather in Erie"), N('weather'), N('will it rain tomorrow'), N('convert 100 usd to eur'), N('50 euros in dollars'), N('define recursion'),
+      N('search stackoverflow for center a div'), N('latest version of react'), N('latest version of requests on pypi'), N('who won the game last night?'),
+      N('google cats'), N('open youtube'), N('write a function'), N('what is a closure')],
+     ['web_search {"query":"webgpu on ipad"}', 'web_search {"query":"rust ownership"}', 'read_page {"url":"https://example.com/post","question":""}',
+      'read_page {"url":"https://a.dev/x","question":"what does this page say about caching"}', 'weather {"place":"Erie"}', 'weather {"place":""}', 'weather {"place":""}',
+      'currency {"amount":100,"from":"USD","to":"EUR"}', 'currency {"amount":50,"from":"EUR","to":"USD"}', 'define {"word":"recursion"}',
+      'stack_overflow {"query":"center a div"}', 'package_info {"eco":"npm","name":"react"}', 'package_info {"eco":"pypi","name":"requests"}',
+      'web_search {"query":"who won the game last night"}', null, null, null, null]);
+});
+await t('LIVE: weather, currency, definition, npm, PyPI', async () => {
+  const w = await weather('Erie'); const c = await currency(100, 'USD', 'EUR'); const d = await define('recursion'); const n = await packageInfo('npm', 'react'); const p = await packageInfo('pypi', 'requests');
+  eq([/Weather for Erie/.test(w.text), /EUR/.test(c.text), /recursion/i.test(d.text), /react \d/.test(n.text), /requests \d/.test(p.text)], [true, true, true, true, true]);
+});
+await t('LIVE: web search, Stack Overflow, page reader', async () => {
+  const s = await webSearch('WebGPU Safari'); const s2 = await webSearch('python list comprehension'); const so = await stackOverflow('python reverse a list'); const pg = await readPage('https://example.com');
+  eq([s.results.length >= 2, s.results.every(r => /^https?:/.test(r.url)), s2.used.includes('Stack Overflow'), so.results.length > 0 && so.results[0].snippet.length > 20, /Example Domain/.test(pg.title)], [true, true, true, true, true]);
+});
 document.getElementById('out').textContent = `${pass} passed, ${fail} failed\n\n` + results.join('\n');
 window.__tests = { pass, fail, results };
 </script>

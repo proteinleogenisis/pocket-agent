@@ -23,6 +23,7 @@ export const DEFAULT_SETTINGS = {
   preferences: '',           // explicitly saved user preferences, added to the system prompt
   permissions: {},           // toolName -> 'allow' | 'ask' | 'off' (overrides freedom)
   freedom: 'balanced',       // careful | balanced | free
+  internet: true,            // web search, page reading, weather… (only the request text is sent)
 };
 
 export const store = {

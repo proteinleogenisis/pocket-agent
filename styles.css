@@ -44,6 +44,7 @@ button { font: inherit; color: inherit; }
 .msg .meta { font-size: 11px; color: var(--muted); margin-top: 6px; font-family: var(--font); }
 .msg p { margin: 0 0 8px; } .msg p:last-child { margin-bottom: 0; }
 .msg code { font-family: var(--mono); font-size: 13px; background: var(--code); padding: 1px 4px; border-radius: 4px; }
+.msg a { color: var(--accent); text-decoration: none; } .msg a:hover { text-decoration: underline; }
 .codeblock { position: relative; margin: 8px 0; }
 .codeblock pre { white-space: pre; overflow-wrap: normal; margin: 0; background: var(--code); padding: 10px; border-radius: 8px; overflow-x: auto; font: 13px/1.4 var(--mono); }
 .codeblock .tools { display: flex; gap: 6px; justify-content: flex-end; margin-top: 4px; }

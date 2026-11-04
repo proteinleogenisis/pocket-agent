@@ -23,11 +23,23 @@ function renderMarkdown(container, md) {
       const p = el('p');
       for (const [j, seg] of para.split(/`([^`\n]+)`/g).entries()) {
         if (j % 2) p.append(el('code', null, seg));
-        else seg.split('\n').forEach((ln, k) => { if (k) p.append(el('br')); p.append(ln.replace(/\*\*(.+?)\*\*/g, '$1')); });
+        else seg.split('\n').forEach((ln, k) => { if (k) p.append(el('br')); appendInline(p, ln); });
       }
       container.append(p);
     }
     if (i + 2 < parts.length) container.append(codeBlock(parts[i + 1], parts[i + 2].replace(/\n$/, '')));
+  }
+}
+
+// Inline text with **bold** and safe https links (opened outside the app).
+function appendInline(p, line) {
+  const parts = line.split(/(\[[^\]]+\]\(https:\/\/[^)\s]+\)|\*\*[^*]+\*\*)/g);
+  for (const part of parts) {
+    if (!part) continue;
+    const link = /^\[([^\]]+)\]\((https:\/\/[^)\s]+)\)$/.exec(part);
+    if (link) { const a = el('a', null, link[1]); a.href = link[2]; a.target = '_blank'; a.rel = 'noopener noreferrer'; p.append(a); continue; }
+    const b = /^\*\*([^*]+)\*\*$/.exec(part); if (b) { p.append(el('b', null, b[1])); continue; }
+    p.append(part);
   }
 }
 
@@ -133,7 +145,8 @@ async function send(text) {
     if (res.kind === 'meta') { await meta(res.meta, res.input); return; }
     if (res.kind === 'answer') {
       if (!live) live = addMsg('assistant', res.text || '(empty answer)'); else renderMarkdown(live, res.text);
-      const st = fmtStats(res.stats); if (st) live.append(el('div', 'meta', st + (usedScreen ? ' · used screen text' : '')));
+      const st = [fmtStats(res.stats), usedScreen && 'used screen text', res.online && `🌐 ${res.online.join(', ')}`].filter(Boolean).join(' · ');
+      if (st) live.append(el('div', 'meta', st));
       remember(text, res.text, usedScreen);
     } else if (res.kind === 'tool') {
       showToolResult(res);
@@ -387,6 +400,7 @@ function openSettings() {
   $('autoClear').checked = settings.autoClearScreen;
   $('saveScreen').checked = settings.saveScreenTurns;
   $('autoTools').checked = settings.autoTools;
+  $('internetToggle').checked = settings.internet !== false;
   const fr = $('freedomSelect'); fr.replaceChildren(...Object.entries(FREEDOM).map(([k, d]) => { const o = el('option', null, d); o.value = k; return o; }));
   fr.value = settings.freedom || 'balanced';
   $('prefs').value = settings.preferences;
@@ -413,6 +427,7 @@ function saveSettingsFromUI() {
   settings.autoClearScreen = $('autoClear').checked;
   settings.saveScreenTurns = $('saveScreen').checked;
   settings.autoTools = $('autoTools').checked;
+  settings.internet = $('internetToggle').checked;
   if (settings.freedom !== $('freedomSelect').value) { settings.freedom = $('freedomSelect').value; settings.permissions = {}; } // a new level resets per-tool overrides
   settings.preferences = $('prefs').value.slice(0, 600);
   store.saveSettings(settings);

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; worker-src 'self' blob:; connect-src 'self' blob: data: https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; worker-src 'self' blob:; connect-src 'self' blob: data: https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com https://r.jina.ai https://api.duckduckgo.com https://hn.algolia.com https://en.wikipedia.org https://en.wiktionary.org https://api.stackexchange.com https://geocoding-api.open-meteo.com https://api.open-meteo.com https://api.frankfurter.dev https://registry.npmjs.org https://pypi.org; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -86,6 +86,12 @@
       <label class="row">Save chats that used screen text <input type="checkbox" id="saveScreen"></label>
       <p class="muted small">Screenshots are read on this iPad with OCR, kept in memory only, and released right after. Nothing is uploaded. The only network traffic is the one-time app and model download.</p>
       <button class="btn" id="showScreenBtn">Show current screen text</button>
+    </section>
+
+    <section>
+      <h3>Internet</h3>
+      <label class="row">Allow internet access <input type="checkbox" id="internetToggle"></label>
+      <p class="muted small">Web search (Wikipedia, DuckDuckGo answers, Hacker News, Stack Overflow), reading a page you link (r.jina.ai), weather (Open-Meteo), exchange rates (Frankfurter), definitions (Wiktionary), Stack Overflow, npm and PyPI. Only the words of your request are sent — never screenshots, attached files, notes or chat history. Each online answer lists the services it used.</p>
     </section>
 
     <section>

@@ -8,14 +8,17 @@ A private coding assistant that runs entirely in Safari on an iPad. No account, 
 - **Freedom levels:** Careful / Balanced / Free decide what runs without asking. Deleting always asks; emails and messages always open for you to send.
 - **Safety:** slash commands are parsed deterministically. Tool calls the model picks use grammar-constrained JSON and are validated in code. Running code, Shortcuts and deletions ask for confirmation. Screen text is fenced as untrusted data.
 
+## Internet (optional, Settings → Internet)
+Web search with cited answers (Wikipedia, DuckDuckGo Instant Answers, Hacker News, Stack Overflow — official APIs only, no scraping of search pages), reading a page you link (r.jina.ai), weather (Open-Meteo), exchange rates (Frankfurter), definitions (Wiktionary), npm/PyPI versions. Questions about current events go online automatically.
+
 ## Privacy
-Hosting serves the static files only. Prompts, screenshots, OCR text, notes and chats never leave the device. The only network requests are the one-time download of the app and the model weights (huggingface.co / raw.githubusercontent.com).
+Hosting serves the static files only. Screenshots, OCR text, attached files, notes and chats never leave the device. When Internet is on, only the words of the request (query, place, word, or the URL you gave) are sent, with no cookies or referrer, and each answer lists the services it used.
 
 ## Development
 ```
 python3 tools/serve.py 8765        # no-cache dev server → http://localhost:8765
-open http://localhost:8765/tests/  # 51 in-browser unit tests
+open http://localhost:8765/tests/  # 56 in-browser unit tests (some call live APIs)
 python3 tools/build.py             # syntax-check modules + regenerate sw.js (run before every deploy)
 ```
 `?bench=<model-id>&ctx=2048` loads a model and runs the benchmark. Add `&tasks=1` to run the
-end-to-end task suite (28 plain-English tasks whose results are verified; confirmations auto-accepted in this mode only).
+end-to-end task suite (33 plain-English tasks whose results are verified; confirmations auto-accepted in this mode only).
