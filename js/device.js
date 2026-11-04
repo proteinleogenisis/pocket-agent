@@ -54,23 +54,24 @@ export function parseWhen(text, now = new Date()) {
 
 // ---------- Commands ----------
 const pct = (s) => {
-  const t = s.toLowerCase().trim();
-  if (/^(max|maximum|full|100)/.test(t)) return 1;
-  if (/^(min|minimum|lowest|off|zero|0)$/.test(t)) return 0;
-  if (/^(half)$/.test(t)) return 0.5;
-  if (/^(low|dim|darker|quieter|lower)$/.test(t)) return 0.25;
-  if (/^(high|bright|brighter|louder|higher)$/.test(t)) return 0.8;
-  const m = /(\d{1,3})\s*(%|percent)?/.exec(t); return m ? Math.min(100, +m[1]) / 100 : null;
+  const t = s.toLowerCase().trim().replace(/^(go|be|all the way|way)\s+/, '').replace(/\s+(please|now)$/, '');
+  const m0 = /(\d{1,3})\s*(%|percent)?/.exec(t); if (m0) return Math.min(100, +m0[1]) / 100;
+  if (/\b(max|maximum|full|highest|brightest|loudest|all the way up)\b/.test(t)) return 1;
+  if (/\b(min|minimum|lowest|off|zero|darkest|all the way down)\b/.test(t)) return 0;
+  if (/\bhalf(way)?\b/.test(t)) return 0.5;
+  if (/\b(low|dim|darker|quieter|lower|down)\b/.test(t)) return 0.25;
+  if (/\b(high|bright|brighter|louder|higher|up)\b/.test(t)) return 0.8;
+  return null;
 };
 const sc = (shortcut, input, say) => ({ tool: 'device', value: { shortcut, input: input == null ? '' : String(input), say } });
 
 // Returns a device command or null.
 export function parseDevice(t) {
   let m;
-  if ((m = /^(?:set|turn|change|make|put)?\s*(?:the\s+)?(?:screen\s+)?brightness\s+(?:to|at|up to|down to)?\s*(.+)$/i.exec(t)) || (m = /^(?:make\s+(?:the\s+)?screen|screen)\s+(brighter|darker|dim|max|full)$/i.exec(t))) {
+  if ((m = /^(?:set|turn|change|make|put|bring)?\s*(?:the\s+)?(?:screen\s+)?brightness\s+(?:to|at|up to|down to|go to|go|be)?\s*(.+)$/i.exec(t)) || (m = /^(?:turn|bring|set)\s+(?:the\s+)?(?:screen\s+)?brightness\s+(up|down)$/i.exec(t)) || (m = /^(?:make\s+(?:the\s+)?screen|screen)\s+(brighter|darker|dim|max|full)$/i.exec(t))) {
     const v = pct(m[1]); if (v != null) return sc('PA Brightness', v, `Setting brightness to ${Math.round(v * 100)}%`);
   }
-  if ((m = /^(?:set|turn|change|put)?\s*(?:the\s+)?volume\s+(?:to|at|up to|down to)?\s*(.+)$/i.exec(t))) { const v = pct(m[1]); if (v != null) return sc('PA Volume', v, `Setting volume to ${Math.round(v * 100)}%`); }
+  if ((m = /^(?:set|turn|change|put|make|bring)?\s*(?:the\s+)?volume\s+(?:to|at|up to|down to|go to|go|be)?\s*(.+)$/i.exec(t)) || (m = /^(?:turn|make)\s+(?:it|the\s+(?:sound|music))\s+(louder|quieter|up|down)$/i.exec(t))) { const v = pct(m[1]); if (v != null) return sc('PA Volume', v, `Setting volume to ${Math.round(v * 100)}%`); }
   if (/^(mute|silence)(\s+(the\s+)?(sound|volume|ipad|audio))?$/i.test(t)) return sc('PA Volume', 0, 'Muting');
   if (/^(play|pause|resume|stop)(\s+(the\s+)?(music|song|playback|audio))?$/i.test(t)) return sc('PA Play Pause', '', 'Toggling play/pause');
   if (/^(next|skip)(\s+(this\s+|the\s+)?(song|track))?$|^(play\s+)?(the\s+)?next\s+(song|track)$/i.test(t)) return sc('PA Next Track', '', 'Skipping to the next song');

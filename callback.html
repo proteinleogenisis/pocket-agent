@@ -1,0 +1,14 @@
+<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket Agent — Shortcut result</title>
+<style>body{font:16px -apple-system,system-ui,sans-serif;margin:24px;background:#111317;color:#e8eaee}code{background:#0d0f13;padding:2px 6px;border-radius:6px}</style>
+<h2>Shortcut result</h2>
+<p id="out">…</p>
+<p><a href="./" style="color:#5b8cff">Back to Pocket Agent</a></p>
+<script>
+// Shortcuts sends results here via x-callback-url (used to verify the PA Shortcuts work).
+const q = new URLSearchParams(location.search);
+const ok = q.has('ok'), err = q.get('errorMessage'), res = q.get('result');
+document.getElementById('out').textContent = ok ? `✓ ${q.get('name') || 'Shortcut'} ran${res ? ': ' + res : ''}` : `✗ ${q.get('name') || 'Shortcut'} failed: ${err || 'cancelled'}`;
+window.__result = { ok, name: q.get('name'), result: res, error: err };
+</script>

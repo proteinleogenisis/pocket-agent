@@ -6,7 +6,7 @@ import { parseSlash, runTool, needsRouter, buildMessages, TOOLS, parseTransform,
 import { runJS, runPython } from '../js/sandbox.js';
 import { llm } from '../js/llm.js';
 import { parseAction, parseBuild, buildAndRun, files } from '../js/actions.js';
-import { parseWeb, normalize } from '../js/web.js';
+import { parseWeb, normalize, fixTypos } from '../js/web.js';
 import { parseNet, weather, currency, webSearch, readPage, define, stackOverflow, packageInfo } from '../js/net.js';
 import { permissionFor, splitSteps, isFactual, classify } from '../js/agent.js';
 import { parseDevice, parseAppIntent, parseWhen } from '../js/device.js';
@@ -213,6 +213,16 @@ await t('apps open straight to content', () => {
 await t('multi-step splitting', () => eq([splitSteps('set brightness to 30% and play music'), splitSteps('what is 2+2 and uppercase hello'), splitSteps('save a note: eggs and milk'), splitSteps('search youtube for tom and jerry'), splitSteps('write a function and explain it')],
   [['set brightness to 30%', 'play music'], ['what is 2+2', 'uppercase hello'], null, null, null]));
 await t('factual questions get grounded, code questions do not', () => eq([isFactual('who was ada lovelace'), isFactual('how do black holes form'), isFactual('how do I write a python function'), isFactual('what is your name'), isFactual('hi')], [true, true, false, false, false]));
+await t('typos and loose phrasing (from real iPad use)', () => {
+  const D = (q) => { const r = parseDevice(normalize(q)); return r ? r.value.shortcut + '|' + r.value.input : null; };
+  eq([fixTypos('brighntess 30'), fixTypos('volum 50'), fixTypos('open spotfy'), fixTypos('hello there friend')], ['brightness 30', 'volume 50', 'open spotify', 'hello there friend']);
+  eq([D('brighntess 30'), D('make brightness go max'), D('make brightness go ma'), D('turn brightness up'), D('turn the volume down'), D('turn it louder')],
+     ['PA Brightness|0.3', 'PA Brightness|1', null, 'PA Brightness|0.8', 'PA Volume|0.25', 'PA Volume|0.8']);
+  const U = (q) => parseWeb(q)?.value?.url || null;
+  eq([U('open up google with images of chickens'), U('pictures of golden retrievers'), U('open youtube and search minecraft builds'), U('open google with how to tie a tie')],
+     ['x-safari-https://www.google.com/search?tbm=isch&q=chickens', 'x-safari-https://www.google.com/search?tbm=isch&q=golden%20retrievers',
+      'x-safari-https://www.youtube.com/results?search_query=minecraft%20builds', 'x-safari-https://www.google.com/search?q=how%20to%20tie%20a%20tie']);
+});
 document.getElementById('out').textContent = `${pass} passed, ${fail} failed\n\n` + results.join('\n');
 window.__tests = { pass, fail, results };
 </script>

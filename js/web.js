@@ -64,8 +64,32 @@ const SITE_ALT = Object.keys(SEARCH).filter((k) => k.length > 1).sort((a, b) => 
 const title = (s) => s.replace(/\b\w/g, (c) => c.toUpperCase());
 
 // Strip politeness and filler so "hey can you please open google for me?" → "open google".
+// Typo tolerance for command words (“brighntess” → “brightness”). Damerau-Levenshtein distance.
+const VOCAB = ['brightness', 'volume', 'timer', 'reminder', 'remind', 'calendar', 'battery', 'bluetooth', 'music', 'youtube', 'google',
+  'spotify', 'wikipedia', 'search', 'weather', 'directions', 'safari', 'notes', 'open', 'launch', 'images', 'pictures', 'screen',
+  'minutes', 'seconds', 'hours', 'message', 'email', 'translate', 'discord', 'netflix', 'amazon', 'reddit', 'github', 'settings'];
+function dist(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+  }
+  return d[a.length][b.length];
+}
+let KNOWN = null;   // exact words that must never be "corrected" (site and app names)
+export function fixTypos(text) {
+  KNOWN ||= new Set([...Object.keys(SITES), ...Object.keys(APP_SCHEMES)].flatMap((k) => k.split(/\s+/)));
+  return text.replace(/[A-Za-z]{4,}/g, (w) => {
+    const lw = w.toLowerCase(); if (VOCAB.includes(lw) || KNOWN.has(lw)) return w;
+    const max = lw.length >= 7 ? 2 : 1; let best = null, bd = 9;
+    for (const v of VOCAB) { if (Math.abs(v.length - lw.length) > max) continue; const dd = dist(lw, v); if (dd < bd) { bd = dd; best = v; } }
+    return best && bd <= max ? best : w;
+  });
+}
+
 export function normalize(text) {
-  let t = text.trim();
+  let t = fixTypos(text.trim());
   for (let i = 0; i < 4; i++) {
     const before = t;
     t = t.replace(/^(hey|hi|hello|ok(ay)?|yo|so|alright|um+)[,!.\s]+/i, '')
@@ -106,6 +130,11 @@ export function parseWeb(text) {
   if ((m = /^(?:search|google|look\s+up|search\s+up|search\s+the\s+(?:web|internet)|search\s+online|web\s+search)\s+(?:the\s+(?:web|internet)\s+|online\s+)?(?:for\s+)?(.+)$/i.exec(t)) && !/\b(notes?|files?)\b/i.test(t)) {
     return open(`Google: ${m[1]}`, safari(SEARCH.google(m[1])));
   }
+  // "images/pictures/photos of chickens", "open google with images of chickens"
+  if ((m = /^(?:(?:open|show|find|search|pull up|get)\s+(?:up\s+)?(?:me\s+)?)?(?:google\s+)?(?:with\s+|for\s+)?(?:some\s+)?(?:images?|pictures?|pics|photos?)\s+(?:of|for)\s+(.+)$/i.exec(t))
+    || (m = /^(?:open|pull up|show|go to)\s+(?:up\s+)?google\s+(?:with|for|showing)\s+(?:some\s+)?(?:images?|pictures?|pics|photos?)\s+(?:of|for)\s+(.+)$/i.exec(t))) return siteSearch('images', m[1]);
+  // "open youtube and search cats", "open google with how to tie a tie"
+  if ((m = new RegExp(`^(?:${OPEN_VERBS})\\s+(?:up\\s+)?(${SITE_ALT})\\s+(?:and\\s+(?:search|look up|find|play)(?:\\s+for)?|with|for|showing|to search(?:\\s+for)?|and show(?:\\s+me)?)\\s+(.+)$`, 'i').exec(t))) return siteSearch(m[1], m[2]);
   // Opening something.
   if ((m = new RegExp(`^(${OPEN_VERBS})\\s+(.+)$`, 'i').exec(t))) {
     const target = resolveOpenTarget(m[2]);

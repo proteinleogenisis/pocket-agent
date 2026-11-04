@@ -567,7 +567,16 @@ async function boot() {
     }
   } catch {}
   $('input').focus();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    // When an update finishes installing, switch to it right away (once), instead of on the next launch.
+    const hadController = !!navigator.serviceWorker.controller; let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloaded) return; reloaded = true;
+      const go = () => (busy ? setTimeout(go, 1000) : location.reload());
+      go();
+    });
+    navigator.serviceWorker.register('sw.js').then((r) => r.update()).catch(() => {});
+  }
   await initModelUI();
   // Warm the lightweight engines in the background on idle.
   setTimeout(() => warmOCR(), 3000);
