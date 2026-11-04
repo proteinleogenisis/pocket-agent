@@ -106,13 +106,15 @@ def control_actions():
     for name, body in branches.items():
         g = str(uuid.uuid4()).upper()
         cond_in = {'Type': 'Variable', 'Variable': var(a_u)}
+        # Shortcuts 7 (iPadOS 26) only reads the comparison text as a rich-text token, not a plain string.
+        cond_str = {'Value': {'string': name, 'attachmentsByRange': {}}, 'WFSerializationType': 'WFTextTokenString'}
         acts.append(act('is.workflow.actions.conditional', WFControlFlowMode=0, GroupingIdentifier=g,
                         # current Shortcuts format (iOS 17+) …
                         WFConditions={'Value': {'WFActionParameterFilterPrefix': 1, 'WFActionParameterFilterTemplates': [
-                            {'WFCondition': 4, 'WFConditionalActionString': name, 'WFInput': cond_in}]},
+                            {'WFCondition': 4, 'WFConditionalActionString': cond_str, 'WFInput': cond_in}]},
                             'WFSerializationType': 'WFContentPredicateTableTemplate'},
                         # … and the older flat format, for older versions
-                        WFCondition=4, WFConditionalActionString=name, WFInput=cond_in))
+                        WFCondition=4, WFConditionalActionString=cond_str, WFInput=cond_in))
         acts += body
         acts.append(act('is.workflow.actions.conditional', WFControlFlowMode=2, GroupingIdentifier=g))
     return acts
