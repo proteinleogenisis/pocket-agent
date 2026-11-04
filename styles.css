@@ -84,3 +84,6 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); 
 .note { padding: 4px 0; border-bottom: 1px dashed var(--line); display: flex; gap: 8px; }
 .note div { flex: 1; min-width: 0; }
 @media (max-width: 420px) { .bar { padding: 6px 8px; } #log { padding: 8px; } }
+
+#advancedBox { border-top: 1px solid var(--line); padding-top: 10px; }
+#advancedBox summary { cursor: pointer; padding: 6px 0; }

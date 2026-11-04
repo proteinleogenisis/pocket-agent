@@ -22,7 +22,7 @@ export const DEFAULT_SETTINGS = {
   autoTools: true,           // allow the model to pick tools
   preferences: '',           // explicitly saved user preferences, added to the system prompt
   permissions: {},           // toolName -> 'allow' | 'ask' | 'off' (overrides freedom)
-  freedom: 'balanced',       // careful | balanced | free
+  freedom: 'free',           // careful | balanced | free  (default: max control, as requested)
   internet: true,            // web search, page reading, weather… (only the request text is sent)
   grounding: true,           // look up factual questions on Wikipedia before answering
   installedShortcuts: [],    // PA Shortcuts the user installed (from Settings → Device control)

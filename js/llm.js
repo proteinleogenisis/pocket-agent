@@ -181,7 +181,60 @@ class LocalLLM {
   interrupt() { try { this.engine?.interruptGenerate(); } catch {} }
 }
 
-export const llm = new LocalLLM();
+// ---------- Native iPad app: llama.cpp + Metal through a message bridge ----------
+export const NATIVE = !!(typeof window !== 'undefined' && window.webkit?.messageHandlers?.native);
+export function nativeCall(msg) { return window.webkit.messageHandlers.native.postMessage(msg); }
+
+// JSON schema (flat object of strings/enums, as used by the tool router) → llama.cpp GBNF grammar.
+export function schemaToGBNF(schema) {
+  const props = schema.required || Object.keys(schema.properties);
+  const lit = (v) => JSON.stringify(JSON.stringify(v));            // GBNF string literal of a JSON string
+  const rules = ['ws ::= [ \\t\\n]{0,3}', 'str ::= "\\"" ( [^"\\\\\\x7F\\x00-\\x1F] | "\\\\" ( ["\\\\/bfnrt] | "u" [0-9a-fA-F]{4} ) )* "\\""'];
+  const parts = props.map((k, i) => {
+    const p = schema.properties[k]; const name = 'p' + i;
+    rules.push(`${name} ::= ` + (p.enum ? p.enum.map(lit).join(' | ') : 'str'));
+    return `${lit(k)} ws ":" ws ${name}`;
+  });
+  rules.unshift(`root ::= "{" ws ${parts.join(' ws "," ws ')} ws "}"`);
+  return rules.join('\n');
+}
+
+class NativeLLM {
+  modelId = null; loadSeconds = 0; busy = false; lastLoad = null; loading = null; onRecover = null; nCtx = 4096;
+  get ready() { return !!this.modelId; }
+  get recoverable() { return false; }
+  async status() { return nativeCall({ op: 'llm.status' }); }
+  async load(_id, { contextWindow } = {}) {
+    if (this.modelId) return;
+    const t0 = performance.now();
+    const r = await nativeCall({ op: 'llm.load', nCtx: 4096 });
+    this.modelId = r.model; this.loadSeconds = r.loadSeconds || (performance.now() - t0) / 1000; this.lastLoad = { id: r.model, contextWindow: 4096 };
+  }
+  async unload() { /* the native model stays resident; memory is managed by iPadOS */ }
+  async _gen(messages, opts, grammar, onToken) {
+    if (!this.modelId) await this.load();
+    this.busy = true;
+    const id = Math.random().toString(36).slice(2);
+    const prev = window.__nativeToken;
+    window.__nativeToken = (rid, text) => { if (rid === id && onToken) onToken(stripThink(text)); else if (prev) prev(rid, text); };
+    try {
+      return await nativeCall({ op: 'llm.generate', id, messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        maxTokens: opts.maxTokens || 512, temperature: opts.temperature ?? 0.2, ...(grammar ? { grammar } : {}) });
+    } finally { this.busy = false; window.__nativeToken = prev; }
+  }
+  async stream(messages, { onToken, temperature = 0.2, maxTokens = 768 } = {}) {
+    const r = await this._gen(messages, { temperature, maxTokens }, null, onToken);
+    const text = stripThink(r.text); onToken?.(text);
+    return { text, stats: r.stats };
+  }
+  async json(messages, schema, { maxTokens = 200 } = {}) {
+    const r = await this._gen(messages, { temperature: 0, maxTokens }, schemaToGBNF(schema));
+    return { value: JSON.parse(stripThink(r.text).trim()), stats: r.stats };
+  }
+  interrupt() { try { nativeCall({ op: 'llm.cancel' }); } catch {} }
+}
+
+export const llm = NATIVE ? new NativeLLM() : new LocalLLM();
 
 // After a failed download: find out which server is unreachable, so the error is specific.
 export async function diagnoseNetwork(id) {

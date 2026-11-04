@@ -10,6 +10,7 @@ import { store } from './store.js';
 import { ACTION_TOOLS, parseAction, parseBuild, buildAndRun } from './actions.js';
 import { APP_SCHEMES, SITES, resolveOpenTarget, parseWeb, allowedOpenURL, normalize } from './web.js';
 import * as net from './net.js';
+import { NATIVE, nativeCall } from './llm.js';
 import { parseDevice, parseAppIntent, openWithFallback, runShortcutURL, SHORTCUT_NAMES } from './device.js';
 export { APP_SCHEMES, resolveOpenTarget };
 
@@ -144,6 +145,7 @@ Object.assign(TOOLS, ACTION_TOOLS, {
       return { ok: true, value: v };
     },
     run: async ({ shortcut, input, say }) => {
+      if (NATIVE) { const r = await nativeCall({ op: 'device', action: shortcut, input }); return { ok: r.ok, output: r.output, error: r.ok ? undefined : r.output }; }
       openURL(runShortcutURL(shortcut, input));
       const installed = (store.settings().installedShortcuts || []).includes(shortcut);
       return { ok: true, output: `${say || 'Running ' + shortcut}… (via your “${shortcut}” Shortcut)${installed ? '' : `\nIf nothing happens, install “${shortcut}” in ⚙︎ Settings → Device control.`}` };
@@ -154,6 +156,11 @@ Object.assign(TOOLS, ACTION_TOOLS, {
     risk: 'safe', usage: 'play lofi beats on spotify',
     validate: (i) => (i.value?.app && i.value?.web ? { ok: true, value: i.value } : { ok: false, error: 'Nothing to open' }),
     run: async ({ name, app, web, q }) => {
+      if (NATIVE) {
+        const has = await nativeCall({ op: 'app.canOpen', url: app });
+        await nativeCall({ op: 'app.open', url: has ? app : web });
+        return { ok: true, output: has ? `Opened ${name}${q ? ` for “${q}”` : ''}.` : `${name} isn't installed, so I opened the website${q ? ` for “${q}”` : ''}.` };
+      }
       const where = await openWithFallback(app, web, openURL);
       return { ok: true, output: where === 'app' ? `Opened ${name}${q ? ` for “${q}”` : ''}.` : `${name} isn't installed (or didn't open), so I opened the website${q ? ` for “${q}”` : ''}.` };
     },
@@ -330,7 +337,7 @@ const CAPABILITIES = `I'm Pocket Agent — a private assistant running entirely 
 **Files:** attach a code or text file (⧉) to ask about it or “run it”. “Save that as app.py”, “show my files”, “run app.py”, “copy the last code”.
 **Screen help:** paste a screenshot (⌘⇧4 → Copy and Delete → ⌘V) and ask “what does this error mean?”. I read the text on-device.
 **Internet:** “search the web for …”, “summarize https://…”, “weather in Erie”, “100 usd to eur”, “define recursion”, “search stackoverflow for …”, “latest version of react”. Questions about current events go online automatically. Only your request is sent — never screenshots, files or notes.
-**Control the iPad** (after installing the PA Shortcuts in ⚙︎ Settings → Device control): “brightness 40%”, “mute”, “pause music”, “next song”, “set a timer for 10 minutes”, “remind me to …”, “add dentist to my calendar tomorrow at 3pm”, “what's my battery”, “say hello”, “turn off bluetooth”. Several at once: “set brightness to 30% and play music”.
+**Control the iPad:** “brightness 40%”, “mute”, “pause music”, “next song”, “set a timer for 10 minutes”, “remind me to …”, “add dentist to my calendar tomorrow at 3pm”, “what's my battery”, “say hello”, “turn off bluetooth”. Several at once: “set brightness to 30% and play music”.
 **Other apps:** “open safari”, “search the web for …”, “email bob@example.com about lunch”, “text 555-123-4567 saying running late”, “directions to the library”, “run shortcut Add Reminder with buy milk”, “remind me to …” (uses a Shortcut named Pocket Reminder).
 **Instant tools:** math (“15% of 240”), text tools (“uppercase …”, “count the words in …”), notes (“remember that …”, “search my notes for …”).
 

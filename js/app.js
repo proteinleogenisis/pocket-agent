@@ -1,4 +1,4 @@
-import { llm, CANDIDATES, probeGPU, modelIdFor, modelRecord, isCached, deleteCached, diagnoseNetwork, isMirrored } from './llm.js';
+import { llm, CANDIDATES, probeGPU, modelIdFor, modelRecord, isCached, deleteCached, diagnoseNetwork, isMirrored, NATIVE } from './llm.js';
 import { handle, runTool, TOOLS, permissionFor, route, ROUTER_TESTS, FREEDOM } from './agent.js';
 import { analyzeImage, toContext, warmOCR } from './ocr.js';
 import { warmPython } from './sandbox.js';
@@ -283,6 +283,7 @@ function clearScreen(msg) {
 // ---------------- Model management ----------------
 let gpu = null;
 async function initModelUI() {
+  if (NATIVE) return initNativeModel();
   gpu = await probeGPU();
   // A small max buffer means a low-memory device (a 4 GB iPad reports ~683 MB).
   const lowMem = gpu.ok && gpu.maxBuffer < 1024 * 2 ** 20;
@@ -311,6 +312,17 @@ async function initModelUI() {
   if (gpu.ok && settings.autoLoad && settings.modelId && await isCached(settings.modelId)) loadModel(settings.modelId);
 }
 
+// Native iPad app: the 1.5B model runs in llama.cpp (Metal) and loads automatically.
+async function initNativeModel() {
+  $('webModelBox').hidden = true; $('shortcutSection').hidden = true;
+  gpu = { ok: true };
+  const st = await llm.status();
+  $('gpuInfo').textContent = st.hasModel
+    ? 'On-device brain: Qwen2.5-Coder 1.5B (llama.cpp + Metal on the iPad GPU). Private, free, works offline.'
+    : '⚠︎ The model file isn\'t on this iPad yet. Connect it to the Mac so it can be copied over.';
+  if (st.hasModel) loadModel('native');
+}
+
 async function loadModel(id) {
   if (!id) return;
   $('modelDot').className = 'dot loading'; $('modelLabel').textContent = 'Loading…';
@@ -320,9 +332,9 @@ async function loadModel(id) {
       contextWindow: settings.contextWindow,
       onProgress: (r) => { $('loadProgress').firstElementChild.style.width = `${Math.round(r.progress * 100)}%`; $('loadText').textContent = r.text; status(r.text.slice(0, 90)); },
     });
-    settings.modelId = id; store.saveSettings(settings);
+    if (!NATIVE) { settings.modelId = id; store.saveSettings(settings); }
     $('modelDot').className = 'dot ready';
-    $('modelLabel').textContent = id.replace(/-q4f(16|32)_1-MLC$/, '');
+    $('modelLabel').textContent = NATIVE ? 'Qwen2.5-Coder 1.5B' : id.replace(/-q4f(16|32)_1-MLC$/, '');
     $('loadText').textContent = `Loaded in ${llm.loadSeconds.toFixed(1)}s. Runs offline from now on.`;
     requestPersist();
   } catch (e) {
@@ -567,7 +579,11 @@ async function boot() {
     }
   } catch {}
   $('input').focus();
-  if ('serviceWorker' in navigator) {
+  // One-time switch to max control (requested): sandboxed code, device actions and Shortcuts run without asking.
+  if (!settings.maxControl) { settings.maxControl = true; settings.freedom = 'free'; settings.permissions = {}; store.saveSettings(settings); }
+  // "Ask Pocket Agent" (Spotlight, Siri, ⌘⇧Space, pocketagent://ask?q=…) lands here.
+  window.__paAsk = (q) => { $('settingsDlg').open && $('settingsDlg').close(); const i = $('input'); i.focus(); if (q && q.trim()) send(q); };
+  if ('serviceWorker' in navigator && !NATIVE) {
     // When an update finishes installing, switch to it right away (once), instead of on the next launch.
     const hadController = !!navigator.serviceWorker.controller; let reloaded = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
