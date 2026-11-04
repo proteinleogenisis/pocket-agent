@@ -130,7 +130,7 @@ for f in os.listdir(OUT):
     if f.endswith('.shortcut'): os.unlink(os.path.join(OUT, f))
 manifest = []
 for name, (desc, actions, color, glyph) in BUILD.items():
-    slug = name.lower().replace(' ', '-')
+    slug = name   # iPadOS names an imported Shortcut after its file, so the file must be exactly "PA Control.shortcut"
     with tempfile.NamedTemporaryFile(suffix='.shortcut', delete=False) as tmp:
         plistlib.dump(shortcut(actions, color, glyph), tmp, fmt=plistlib.FMT_BINARY)
     out = os.path.join(OUT, slug + '.shortcut')
@@ -138,7 +138,7 @@ for name, (desc, actions, color, glyph) in BUILD.items():
     os.unlink(tmp.name)
     if r.returncode or not os.path.exists(out):
         sys.exit(f'Signing {name} failed: {r.stderr.strip()}')
-    manifest.append({'name': name, 'file': f'shortcuts/{slug}.shortcut', 'desc': desc})
+    manifest.append({'name': name, 'file': f'shortcuts/{slug.replace(" ", "%20")}.shortcut', 'download': f'{slug}.shortcut', 'desc': desc})
     print('signed', name)
 json.dump(manifest, open(os.path.join(OUT, 'manifest.json'), 'w'), indent=1)
 print(f'{len(manifest)} shortcuts → {OUT}')

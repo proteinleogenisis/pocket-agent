@@ -473,7 +473,7 @@ async function renderShortcuts() {
     const row = el('div', 'note'); const d = el('div');
     const got = (settings.installedShortcuts || []).includes(sc.name);
     d.append(el('b', null, sc.name), el('div', 'muted', sc.desc + (got ? ' · installed' : '')));
-    const a = el('a', 'btn', got ? 'Reinstall' : 'Install'); a.href = sc.file; a.setAttribute('download', sc.file.split('/').pop());
+    const a = el('a', 'btn', got ? 'Reinstall' : 'Install'); a.href = sc.file; a.setAttribute('download', sc.download || decodeURIComponent(sc.file.split('/').pop()));
     a.onclick = () => { settings.installedShortcuts = [...new Set([...(settings.installedShortcuts || []), sc.name])]; store.saveSettings(settings); setTimeout(renderShortcuts, 500); };
     row.append(d, a); box.append(row);
   }
