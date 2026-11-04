@@ -248,7 +248,8 @@ export async function route(llm, text) {
 
 // ---------- Prompt building ----------
 export function buildMessages({ text, history, settings, screen }) {
-  const budgetChars = Math.max(1500, settings.contextWindow * 3 - 1200); // rough chars≈tokens*3, leave room for output
+  // Prompt budget in characters (~3.5 chars per token), leaving room for the answer.
+  const budgetChars = Math.round((settings.contextWindow - answerTokens(settings)) * 3.5) - 200;
   let sys = `You are Pocket Agent, a concise, private coding assistant running fully offline on the user's iPad.
 Reply in plain conversational sentences. Only write code when the user asks for code or it clearly helps;
 when you do, put it in a fenced Markdown block labelled with the language (python, javascript, …).
@@ -274,7 +275,7 @@ ${screen}
   }
   // Keep strict user/assistant alternation starting with user.
   while (past.length && past[0].role !== 'user') past.shift();
-  return [...msgs, ...past, { role: 'user', content: text.slice(0, 4000) }];
+  return [...msgs, ...past, { role: 'user', content: text.slice(0, Math.max(300, budgetChars - sys.length)) }];
 }
 
 const CAPABILITIES = `I'm Pocket Agent — a private assistant running entirely on this iPad (no internet needed after setup).
@@ -285,6 +286,8 @@ const CAPABILITIES = `I'm Pocket Agent — a private assistant running entirely 
 **Open things:** “open safari”, “open notes”, “open example.com”, “search the web for …”, and run your Apple Shortcuts (“run my shortcut Focus”).
 
 I can't tap or type inside other apps — iPadOS doesn't allow that. Type /help for exact commands.`;
+
+export const answerTokens = (settings) => (settings.contextWindow <= 1024 ? 384 : 768);
 
 // ---------- Main pipeline ----------
 // ui: { status(text), token(text), confirm({tool, input, reason}) → Promise<bool> }
@@ -333,7 +336,7 @@ export async function handle({ text, llm, settings, history, screen, ui }) {
   if (!llm.ready && !llm.recoverable) return { kind: 'error', text: 'No model loaded. Open Settings (⚙︎) and load a model, or use a /command.' };
   ui.status(screen ? 'Thinking about the screen text…' : 'Thinking…');
   const messages = buildMessages({ text, history, settings, screen });
-  const { text: out, stats } = await llm.stream(messages, { onToken: ui.token, temperature: settings.temperature });
+  const { text: out, stats } = await llm.stream(messages, { onToken: ui.token, temperature: settings.temperature, maxTokens: answerTokens(settings) });
   return { kind: 'answer', text: out, stats };
 }
 

@@ -15,7 +15,7 @@ function write(key, value) {
 
 export const DEFAULT_SETTINGS = {
   modelId: '',               // chosen in UI; empty = recommended default
-  contextWindow: 2048,       // smaller KV cache = less memory on a 4 GB iPad
+  contextWindow: 1024,       // smaller KV cache = less memory; measured stable on a 4 GB iPad
   temperature: 0.2,
   autoClearScreen: true,     // drop OCR text right after the answer that used it
   saveScreenTurns: false,    // never persist turns that used screen context unless opted in

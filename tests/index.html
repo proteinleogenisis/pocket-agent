@@ -84,6 +84,13 @@ await t('confirm dialog: Run, Cancel and Esc all settle', async () => {
   out.push(await once((d) => d.getElementById('confirmDlg').close()));
   f.remove(); eq(out, [true, false, false, false]);
 });
+await t('recovery: transient GPU error retried without reload', async () => {
+  let calls = 0; llm.lastLoad = { id: 'x', contextWindow: 1024 }; let reloads = 0; const origLoad = llm.load; llm.load = async () => { reloads++; };
+  llm.engine = { chat: { completions: { create: async () => { if (++calls === 1) { const e = new Error('map async was not successful'); e.name = 'OperationError'; throw e; } return { choices: [{ message: { content: '{"a":2}' } }] }; } } }, interruptGenerate() {} };
+  const r = await llm.json([{ role: 'user', content: 'x' }], { type: 'object' });
+  llm.load = origLoad; llm.engine = null; llm.lastLoad = null;
+  eq([calls, reloads, r.value], [2, 0, { a: 2 }]);
+});
 document.getElementById('out').textContent = `${pass} passed, ${fail} failed\n\n` + results.join('\n');
 window.__tests = { pass, fail, results };
 </script>

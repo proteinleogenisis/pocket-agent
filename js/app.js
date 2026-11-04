@@ -118,6 +118,7 @@ async function send(text) {
   $('input').value = ''; autosize(); store.saveDraft('');
   addMsg('user', text);
   setBusy(true);
+  try { localStorage.setItem('pa.generating', String(Date.now())); } catch {}
   const usedScreen = !!screen;
   let live = null;
   try {
@@ -143,6 +144,7 @@ async function send(text) {
     addMsg('err', `Error: ${e?.message || e}`);
   } finally {
     setBusy(false); status('');
+    try { localStorage.removeItem('pa.generating'); } catch {}
     if (usedScreen && settings.autoClearScreen) clearScreen('Screen text cleared after use.');
   }
 }
@@ -204,7 +206,7 @@ async function ingestImage(blob) {
   try {
     status('Reading screenshot on-device…');
     const r = await analyzeImage(blob, { onProgress: (m) => { if (m.status === 'recognizing text') status(`Reading screenshot… ${Math.round(m.progress * 100)}%`); } });
-    screen = { text: toContext(r), lines: r.lines.length, ms: r.ms };
+    screen = { text: toContext(r, settings.contextWindow <= 1024 ? 800 : 2400), lines: r.lines.length, ms: r.ms };
     $('screenPill').hidden = false; $('screenCount').textContent = `· ${r.lines.length} lines`;
     addMsg('tool', `Read ${r.lines.length} text lines in ${(r.ms / 1000).toFixed(1)}s (${r.observations.join(', ')}). The image was discarded; only the text is kept in memory${settings.autoClearScreen ? ' until your next answer' : ''}.`, 'screen context ON');
   } catch (e) {
@@ -223,8 +225,17 @@ function clearScreen(msg) {
 let gpu = null;
 async function initModelUI() {
   gpu = await probeGPU();
+  // A small max buffer means a low-memory device (a 4 GB iPad reports ~683 MB).
+  const lowMem = gpu.ok && gpu.maxBuffer < 1024 * 2 ** 20;
+  if (lowMem && !settings.lowMemTuned) {
+    // One-time switch to settings measured stable on a 4 GB iPad.
+    settings.lowMemTuned = true;
+    if (settings.contextWindow > 1024) settings.contextWindow = 1024;
+    if (/^Qwen3|1\.5B|Llama/.test(settings.modelId || '')) settings.modelId = modelIdFor('Qwen2.5-Coder-0.5B-Instruct', gpu.f16 !== false);
+    store.saveSettings(settings);
+  }
   $('gpuInfo').textContent = gpu.ok
-    ? `WebGPU ready${gpu.f16 ? ' (f16)' : ' (no f16 — using f32 weights)'} · max buffer ${(gpu.maxBuffer / 2 ** 20).toFixed(0)} MB`
+    ? `WebGPU ready${gpu.f16 ? ' (f16)' : ' (no f16 — using f32 weights)'} · max buffer ${(gpu.maxBuffer / 2 ** 20).toFixed(0)} MB${lowMem ? ' · low-memory device: Coder 0.5B with 1k context recommended' : ''}`
     : `⚠︎ ${gpu.reason} The model can't run here, but /commands, OCR and code tools still work.`;
   const sel = $('modelSelect'); sel.replaceChildren();
   for (const c of CANDIDATES) {
@@ -232,7 +243,8 @@ async function initModelUI() {
     if (!id) continue;
     const rec = modelRecord(id);
     const cached = await isCached(id);
-    const o = el('option', null, `${cached ? '✓ ' : ''}${c.label} — ${c.note} (${Math.round(rec.vram_required_MB)} MB @4k)`);
+    const heavy = lowMem && rec.vram_required_MB > 1100;
+    const o = el('option', null, `${cached ? '✓ ' : ''}${c.label} — ${heavy ? 'may run out of memory on this iPad' : c.note} (${Math.round(rec.vram_required_MB)} MB @4k)`);
     o.value = id; sel.append(o);
   }
   sel.value = settings.modelId || sel.options[0]?.value || '';
@@ -457,6 +469,13 @@ llm.onRecover = (phase) => {
 async function boot() {
   bind();
   renderHistory();
+  // If the last answer never finished, iPadOS most likely ran out of memory and reloaded the app.
+  try {
+    if (localStorage.getItem('pa.generating')) {
+      localStorage.removeItem('pa.generating');
+      addMsg('err', 'The iPad ran out of memory during the last answer and reloaded Pocket Agent. Tip: in ⚙︎ Settings use Qwen2.5-Coder 0.5B with a 1k context window, and close other heavy apps.');
+    }
+  } catch {}
   $('input').focus();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   await initModelUI();

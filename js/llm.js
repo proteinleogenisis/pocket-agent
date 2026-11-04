@@ -57,6 +57,9 @@ export async function deleteCached(id) { await deleteModelAllInfoInCache(id, APP
 const GPU_LOST = /disposed|device (was )?lost|DeviceLost|GPUDevice|Instance\.dispose|GPU connection|out of memory/i;
 const stripThink = (t) => t.replace(/<think>[\s\S]*?(<\/think>\s*|$)/, '');
 export const isGpuLost = (e) => GPU_LOST.test(String(e?.message || e));
+// Temporary WebGPU failures (e.g. "OperationError: map async was not successful").
+const GPU_TRANSIENT = /map ?async|OperationError|mapAsync|GPUBuffer/i;
+export const isTransientGpu = (e) => GPU_TRANSIENT.test(`${e?.name || ''} ${e?.message || e}`);
 
 class LocalLLM {
   engine = null; worker = null; modelId = null; loadSeconds = 0; busy = false;
@@ -131,6 +134,13 @@ class LocalLLM {
       try { return await attempt(); }
       catch (e) {
         if (e?.message === 'STALLED') throw new Error('The model stopped responding, so it was restarted. Please try again.');
+        if (isTransientGpu(e)) {
+          // Seen on a 4 GB iPad under memory pressure: retry once, then rebuild the engine.
+          await new Promise((r) => setTimeout(r, 400));
+          try { return await attempt(); } catch (e2) { if (!isTransientGpu(e2) && !isGpuLost(e2)) throw e2; }
+          await this.recover();
+          return await attempt();
+        }
         if (!isGpuLost(e)) throw e;
         await this.recover();           // one automatic retry
         return await attempt();
