@@ -1,4 +1,4 @@
-import { llm, CANDIDATES, probeGPU, modelIdFor, modelRecord, isCached, deleteCached } from './llm.js';
+import { llm, CANDIDATES, probeGPU, modelIdFor, modelRecord, isCached, deleteCached, diagnoseNetwork, isMirrored } from './llm.js';
 import { handle, runTool, TOOLS, permissionFor, route, ROUTER_TESTS } from './agent.js';
 import { analyzeImage, toContext, warmOCR } from './ocr.js';
 import { warmPython } from './sandbox.js';
@@ -239,9 +239,28 @@ async function loadModel(id) {
     $('loadText').textContent = `Loaded in ${llm.loadSeconds.toFixed(1)}s. Runs offline from now on.`;
     requestPersist();
   } catch (e) {
-    $('modelDot').className = 'dot'; $('modelLabel').textContent = 'Load failed';
-    $('loadText').textContent = `Failed: ${e?.message || e}. If the iPad ran out of memory, pick a smaller model or a 1k context.`;
+    $('modelDot').className = 'dot'; $('modelLabel').textContent = 'Model not loaded';
     await llm.unload();
+    const msg = String(e?.message || e);
+    const lastStep = $('loadText').textContent;
+    let why;
+    if (/load failed|network|fetch|failed to fetch|NetworkError|timed out/i.test(msg)) {
+      $('loadText').textContent = 'Download failed — checking which server is unreachable…';
+      const net = await diagnoseNetwork(id);
+      const blocked = net.filter(n => !n.ok).map(n => new URL(n.origin).host);
+      why = !navigator.onLine ? 'This iPad is offline. Connect to the internet once to download the model.'
+        : blocked.length ? `Can't reach ${blocked.join(' and ')} — this network (or a content filter) is blocking it.${isMirrored(id) ? '' : ' Try “Qwen2.5-Coder 0.5B”, which downloads from this app\'s own site.'}`
+        : 'The connection dropped during the download. Tap “Download & load” again — finished parts are kept.';
+    } else if (/quota|storage/i.test(msg)) {
+      why = 'Not enough storage space for the model. Free up space on the iPad, or pick a smaller model.';
+    } else if (/memory|device (was )?lost|OOM|allocation|buffer/i.test(msg)) {
+      why = 'The iPad ran out of memory. Choose a 1k context window or a smaller model, and close other apps.';
+    } else {
+      why = 'Unexpected error.';
+    }
+    $('loadText').textContent = `${why}\nDetails: ${msg.slice(0, 300)}\nLast step: ${lastStep.slice(0, 160)}`;
+    $('loadText').style.whiteSpace = 'pre-wrap';
+    status('');
   } finally { $('loadProgress').hidden = true; $('loadModelBtn').disabled = !gpu?.ok; status(''); }
 }
 

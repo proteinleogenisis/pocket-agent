@@ -16,7 +16,7 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== location.origin) return; // model downloads go straight through
+  if (e.request.method !== 'GET' || url.origin !== location.origin || url.pathname.includes('/models/')) return; // model files: WebLLM caches them itself
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     const hit = await cache.match(e.request, { ignoreSearch: e.request.mode === 'navigate' });

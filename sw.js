@@ -1,6 +1,6 @@
 // Offline support: precaches the app shell and vendored engines (OCR, Python, model runtime).
 // Model weights are cached separately by WebLLM; this worker never touches them.
-const VERSION = '7f56f7f2b598';
+const VERSION = 'fde61a5b88cd';
 const CACHE = `pocket-agent-${VERSION}`;
 const FILES = [
   "./",
@@ -46,7 +46,7 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== location.origin) return; // model downloads go straight through
+  if (e.request.method !== 'GET' || url.origin !== location.origin || url.pathname.includes('/models/')) return; // model files: WebLLM caches them itself
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     const hit = await cache.match(e.request, { ignoreSearch: e.request.mode === 'navigate' });
