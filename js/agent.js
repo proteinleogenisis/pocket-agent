@@ -439,15 +439,18 @@ export async function handle({ text, llm, settings, history, screen, attachment 
 
   // 3. Plain answer — grounded in a quick Wikipedia lookup for factual questions when online.
   if (!llm.ready && !llm.recoverable) return { kind: 'error', text: 'No model loaded. Open Settings (⚙︎) and load a model, or use a /command.' };
-  let ref = null;
+  let ref = null, unchecked = false;
   if (settings.internet !== false && settings.grounding !== false && !screen && !attachment && isFactual(text)) {
     ui.status('📚 Checking Wikipedia…');
-    try { ref = await net.wikiLookup(normalize(text)); } catch { ref = null; }
+    try { ref = await net.wikiLookup(normalize(text)); } catch { ref = null; unchecked = true; }
   }
   ui.status(screen ? 'Thinking about the screen text…' : 'Thinking…');
   const messages = buildMessages({ text, history, settings, screen, attachment, reference: ref });
   const { text: out, stats } = await llm.stream(messages, { onToken: ui.token, temperature: settings.temperature, maxTokens: answerTokens(settings) });
-  return ref ? { kind: 'answer', text: `${out.trim()}\n\nSource: [${ref.title} — Wikipedia](${ref.url})`, stats, online: ['Wikipedia'] } : { kind: 'answer', text: out, stats };
+  if (ref) return { kind: 'answer', text: `${out.trim()}\n\nSource: [${ref.title} — Wikipedia](${ref.url})`, stats, online: ['Wikipedia'] };
+  // Wikipedia unreachable (offline, or blocked on this network): say the answer is unverified instead of sounding sure.
+  if (unchecked) return { kind: 'answer', text: `${out.trim()}\n\n_⚠️ Not verified — couldn't reach Wikipedia on this network, and small on-device models often get facts wrong._`, stats };
+  return { kind: 'answer', text: out, stats };
 }
 
 // ---------- Smarter routing helpers ----------
