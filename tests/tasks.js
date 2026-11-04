@@ -20,7 +20,7 @@ async function codeWorks(lang, call, expect) {
   const blocks = codeBlocks();
   if (!blocks.length) return `no code block`;
   const code = blocks.join('\n');
-  const fn = lang === 'py' ? /def\s+(\w+)/.exec(code)?.[1] : (/function\s+(\w+)/.exec(code) || /(?:const|let|var)\s+(\w+)\s*=/.exec(code))?.[1];
+  const fn = lang === 'py' ? /^\s*def\s+(\w+)\s*\(/m.exec(code)?.[1] : (/^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(/m.exec(code) || /^\s*(?:const|let|var)\s+(\w+)\s*=/m.exec(code))?.[1];
   if (!fn) return 'no function found';
   const r = lang === 'py' ? await runPython(`${code}\nprint(${fn}(${call}))`) : await runJS(`${code}\nconsole.log(${fn}(${call}))`);
   return r.ok && r.output.trim().split('\n').at(-1).trim() === expect ? true : `ran ${fn}(${call}) → ${(r.output || r.error || '').slice(-80)}`;
@@ -39,6 +39,7 @@ export const TASKS = [
   ['base64 encode the text hello', has('aGVsbG8=')],
   ['count the words in: the quick brown fox jumps', has('5 words')],
   ['save a note: Shopping list - eggs and milk', has('saved')],
+  ['remember that the wifi password is on the fridge', has('saved')],
   ['search my notes for eggs', has('eggs')],
   ['write a JavaScript function that returns the factorial of n', () => codeWorks('js', 5, '120')],
   ['write a python function that checks if a number is prime', () => codeWorks('py', 7, 'True')],
