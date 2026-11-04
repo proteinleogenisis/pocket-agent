@@ -7,7 +7,7 @@ import { CreateWebWorkerMLCEngine, prebuiltAppConfig, hasModelInCache, deleteMod
 export const CANDIDATES = [
   { base: 'Qwen2.5-Coder-0.5B-Instruct', label: 'Qwen2.5-Coder 0.5B', note: 'best for code here — hosted with this app' },
   { base: 'Qwen3-0.6B',                  label: 'Qwen3 0.6B',         note: 'newer general model — hosted with this app' },
-  { base: 'Qwen2.5-Coder-1.5B-Instruct', label: 'Qwen2.5-Coder 1.5B', note: 'smarter, ~1.6 GB — needs Hugging Face (blocked on some networks)' },
+  { base: 'Qwen2.5-Coder-1.5B-Instruct', label: 'Qwen2.5-Coder 1.5B', note: 'smartest — test on this iPad (may run out of memory)' },
   { base: 'Llama-3.2-1B-Instruct',       label: 'Llama 3.2 1B',       note: 'general chat — needs Hugging Face (blocked on some networks)' },
 ];
 
@@ -41,7 +41,10 @@ export const APP_CONFIG = {
     ? { ...m, model: `${modelsBase}${m.model_id}/resolve/main/`, model_lib: `${modelsBase}lib/${MIRRORED[m.model_id]}` }
     : m),
 };
-export const isMirrored = (id) => !!MIRRORED[id];
+// Bigger models served from a GitHub branch through the service worker (see tools/sw.template.js).
+const REMOTE = new Set(['Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC']);
+for (const m of APP_CONFIG.model_list) if (REMOTE.has(m.model_id)) m.model = `${modelsBase}remote/${m.model_id}/resolve/main/`;
+export const isMirrored = (id) => !!MIRRORED[id] || REMOTE.has(id);
 
 export function modelIdFor(base, f16) {
   const id = `${base}-${f16 ? 'q4f16_1' : 'q4f32_1'}-MLC`;
