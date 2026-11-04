@@ -38,6 +38,11 @@ await t('sandbox JS output', async () => { const r = await runJS('console.log([1
 await t('sandbox JS has no network', async () => { const r = await runJS('return typeof fetch + "," + typeof XMLHttpRequest + "," + typeof WebSocket'); eq(r.output, '⇒ undefined,undefined,undefined'); });
 await t('sandbox JS timeout', async () => { const r = await runJS('while(true){}', 800); eq([r.ok, /timeout/.test(r.error)], [false, true]); });
 await t('sandbox JS error reported', async () => { const r = await runJS('null.x'); eq(r.ok, false); });
+await t('sandbox JS window alias & alert', async () => { const r = await runJS('window.x = 3; alert("hi " + x)'); eq([r.ok, r.output], [true, 'hi 3']); });
+await t('sandbox JS document gives clear error', async () => { const r = await runJS('document.getElementById("a")'); eq([r.ok, /no web page/.test(r.error)], [false, true]); });
+await t('sandbox JS waits for timers', async () => { const r = await runJS('setTimeout(() => console.log("later"), 100); console.log("now")'); eq(r.output, 'now\nlater'); });
+await t('sandbox JS definition-only hint', async () => { const r = await runJS('function f(){ return 1 }'); eq(/without output/.test(r.output), true); });
+await t('sandbox JS interval stopped', async () => { const r = await runJS('let i=0; setInterval(()=>{ if(i++<2) console.log(i) }, 50)', 6000); eq([r.ok, /stopped a setInterval/.test(r.output)], [true, true]); });
 await t('sandbox Python stdout', async () => { const r = await runPython('import math\nprint(math.factorial(10))'); eq([r.ok, r.output], [true, '3628800']); });
 await t('sandbox Python no network', async () => { const r = await runPython('import js\nprint(hasattr(js, "fetch") and js.fetch is not None)'); eq(r.output.trim(), 'False'); });
 await t('sandbox Python error', async () => { const r = await runPython('1/0'); eq([r.ok, /ZeroDivisionError/.test(r.error)], [false, true]); });

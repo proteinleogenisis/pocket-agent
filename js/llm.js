@@ -5,10 +5,10 @@ import { CreateWebWorkerMLCEngine, prebuiltAppConfig, hasModelInCache, deleteMod
 
 // Candidates sized for a 4 GB iPad. VRAM figures come from WebLLM's config (at 4k context).
 export const CANDIDATES = [
-  { base: 'Qwen2.5-Coder-0.5B-Instruct', label: 'Qwen2.5-Coder 0.5B', note: 'fastest, lowest memory — default, hosted with this app' },
-  { base: 'Qwen2.5-Coder-1.5B-Instruct', label: 'Qwen2.5-Coder 1.5B', note: 'better code, needs ~1.6 GB' },
-  { base: 'Llama-3.2-1B-Instruct',       label: 'Llama 3.2 1B',      note: 'general chat, ~0.9 GB' },
-  { base: 'Qwen3-0.6B',                  label: 'Qwen3 0.6B',        note: 'newer small model, ~1.4 GB' },
+  { base: 'Qwen2.5-Coder-0.5B-Instruct', label: 'Qwen2.5-Coder 0.5B', note: 'best for code here — hosted with this app' },
+  { base: 'Qwen3-0.6B',                  label: 'Qwen3 0.6B',         note: 'newer general model — hosted with this app' },
+  { base: 'Qwen2.5-Coder-1.5B-Instruct', label: 'Qwen2.5-Coder 1.5B', note: 'smarter, ~1.6 GB — needs Hugging Face (blocked on some networks)' },
+  { base: 'Llama-3.2-1B-Instruct',       label: 'Llama 3.2 1B',       note: 'general chat — needs Hugging Face (blocked on some networks)' },
 ];
 
 let gpuInfo = null;
@@ -32,6 +32,7 @@ export async function probeGPU() {
 // Models mirrored on this site (same origin), for networks that block huggingface.co.
 const MIRRORED = {
   'Qwen2.5-Coder-0.5B-Instruct-q4f16_1-MLC': 'Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm',
+  'Qwen3-0.6B-q4f16_1-MLC': 'Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm',
 };
 const modelsBase = new URL('../models/', import.meta.url).href;
 export const APP_CONFIG = {
@@ -54,6 +55,7 @@ export async function deleteCached(id) { await deleteModelAllInfoInCache(id, APP
 // iPadOS can take the GPU away (app backgrounded, Slide Over hidden, memory pressure).
 // WebLLM then disposes its runtime and every later call throws "…has already been disposed".
 const GPU_LOST = /disposed|device (was )?lost|DeviceLost|GPUDevice|Instance\.dispose|GPU connection|out of memory/i;
+const stripThink = (t) => t.replace(/<think>[\s\S]*?(<\/think>\s*|$)/, '');
 export const isGpuLost = (e) => GPU_LOST.test(String(e?.message || e));
 
 class LocalLLM {
@@ -117,13 +119,13 @@ class LocalLLM {
   // Streams text. Returns { text, stats }.
   stream(messages, { onToken, temperature = 0.2, maxTokens = 768 } = {}) {
     return this.withRecovery(async () => {
-      let text = '', stats = null;
+      let text = '', raw = '', stats = null;
       const chunks = await this.engine.chat.completions.create({
-        messages, temperature, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true },
+        messages, temperature, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true }, ...this.extra(),
       });
       for await (const c of chunks) {
         const d = c.choices?.[0]?.delta?.content;
-        if (d) { text += d; onToken?.(text); }
+        if (d) { raw += d; text = stripThink(raw); onToken?.(text); }
         if (c.usage) stats = c.usage;
       }
       return { text, stats };
@@ -135,11 +137,13 @@ class LocalLLM {
     return this.withRecovery(async () => {
       const r = await this.engine.chat.completions.create({
         messages, temperature: 0, max_tokens: maxTokens,
-        response_format: { type: 'json_object', schema: JSON.stringify(schema) },
+        response_format: { type: 'json_object', schema: JSON.stringify(schema) }, ...this.extra(),
       });
-      return { value: JSON.parse(r.choices[0].message.content), stats: r.usage };
+      return { value: JSON.parse(stripThink(r.choices[0].message.content).trim()), stats: r.usage };
     });
   }
+
+  extra() { return /^Qwen3/.test(this.modelId || '') ? { extra_body: { enable_thinking: false } } : {}; }
 
   interrupt() { try { this.engine?.interruptGenerate(); } catch {} }
 }
