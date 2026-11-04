@@ -61,6 +61,10 @@ export const TASKS = [
   ['save that as squares.py', has('Saved squares.py')],
   ['run squares.py', has('100')],
   ['email test@example.com about the meeting tomorrow', () => (/^mailto:test@example\.com\?subject=the%20meeting%20tomorrow&body=.{20,}/.test(opened.at(-1) || '') || `opened ${(opened.at(-1) || '').slice(0, 80)}`)],
+  ['set brightness to 40%', () => opened.at(-1) === 'shortcuts://run-shortcut?name=PA%20Brightness&input=text&text=0.4' || `opened ${opened.at(-1)}`],
+  ['add dentist to my calendar tomorrow at 3pm', () => /^shortcuts:\/\/run-shortcut\?name=PA%20Event&input=text&text=.*dentist/.test(opened.at(-1) || '') || `opened ${opened.at(-1)}`],
+  ['what is 6 times 7 and uppercase done', has('42', 'DONE')],
+  ['who was ada lovelace', has('Wikipedia')],
   ['directions to the eiffel tower', () => opened.at(-1) === 'maps://?daddr=the%20eiffel%20tower' || `opened ${opened.at(-1)}`],
 ];
 

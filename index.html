@@ -91,7 +91,14 @@
     <section>
       <h3>Internet</h3>
       <label class="row">Allow internet access <input type="checkbox" id="internetToggle"></label>
+      <label class="row">Check Wikipedia before answering factual questions <input type="checkbox" id="groundingToggle"></label>
       <p class="muted small">Web search (Wikipedia, DuckDuckGo answers, Hacker News, Stack Overflow), reading a page you link (r.jina.ai), weather (Open-Meteo), exchange rates (Frankfurter), definitions (Wiktionary), Stack Overflow, npm and PyPI. Only the words of your request are sent — never screenshots, attached files, notes or chat history. Each online answer lists the services it used.</p>
+    </section>
+
+    <section>
+      <h3>Device control</h3>
+      <p class="muted small">iPadOS only lets apps change settings or act in other apps through Shortcuts. Install these once: tap <b>Install</b> → <b>Download</b> → open it from the Downloads list (or the Files app) → <b>Add Shortcut</b>. Each is a single, readable action you can inspect in the Shortcuts app.</p>
+      <div id="shortcutList" class="small"></div>
     </section>
 
     <section>

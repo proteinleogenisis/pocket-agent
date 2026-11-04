@@ -24,6 +24,8 @@ export const DEFAULT_SETTINGS = {
   permissions: {},           // toolName -> 'allow' | 'ask' | 'off' (overrides freedom)
   freedom: 'balanced',       // careful | balanced | free
   internet: true,            // web search, page reading, weather… (only the request text is sent)
+  grounding: true,           // look up factual questions on Wikipedia before answering
+  installedShortcuts: [],    // PA Shortcuts the user installed (from Settings → Device control)
 };
 
 export const store = {
@@ -48,6 +50,9 @@ export const store = {
 
   benchmarks() { return read('bench', []); },
   addBenchmark(b) { const l = read('bench', []); l.push(b); write('bench', l.slice(-30)); },
+
+  pending() { return read('pending', []); },
+  setPending(p) { return write('pending', p); },
 
   draft() { return read('draft', ''); },
   saveDraft(d) { write('draft', d); },

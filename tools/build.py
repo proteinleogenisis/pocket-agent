@@ -10,7 +10,7 @@ for d, _, fs in os.walk('.'):
     if rel.split(os.sep)[0] in skip_dirs: continue
     for f in fs:
         p = os.path.normpath(os.path.join(rel, f))
-        if f.startswith('.') or f.endswith('.map') or p in ('sw.js', 'README.md') or f.startswith('LICENSE'): continue
+        if f.startswith('.') or f.endswith('.map') or f.endswith('.shortcut') or p in ('sw.js', 'README.md') or f.startswith('LICENSE'): continue
         files.append(p)
 files.sort()
 # Syntax-check every app module with Node (if installed) so a broken file never ships.

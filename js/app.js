@@ -126,6 +126,7 @@ function confirmAction({ tool, input, fromModel }) {
 
 // ---------------- Sending ----------------
 async function send(text) {
+  if (/^(stop|cancel)( that| it)?$/i.test(text.trim()) && store.pending().length) { store.setPending([]); addMsg('tool', 'Cancelled the remaining steps.', 'steps'); return; }
   text = text.trim();
   if (!text || busy) return;
   $('input').value = ''; autosize(); store.saveDraft('');
@@ -401,6 +402,8 @@ function openSettings() {
   $('saveScreen').checked = settings.saveScreenTurns;
   $('autoTools').checked = settings.autoTools;
   $('internetToggle').checked = settings.internet !== false;
+  $('groundingToggle').checked = settings.grounding !== false;
+  renderShortcuts();
   const fr = $('freedomSelect'); fr.replaceChildren(...Object.entries(FREEDOM).map(([k, d]) => { const o = el('option', null, d); o.value = k; return o; }));
   fr.value = settings.freedom || 'balanced';
   $('prefs').value = settings.preferences;
@@ -428,10 +431,26 @@ function saveSettingsFromUI() {
   settings.saveScreenTurns = $('saveScreen').checked;
   settings.autoTools = $('autoTools').checked;
   settings.internet = $('internetToggle').checked;
+  settings.grounding = $('groundingToggle').checked;
   if (settings.freedom !== $('freedomSelect').value) { settings.freedom = $('freedomSelect').value; settings.permissions = {}; } // a new level resets per-tool overrides
   settings.preferences = $('prefs').value.slice(0, 600);
   store.saveSettings(settings);
 }
+async function renderShortcuts() {
+  const box = $('shortcutList');
+  let list = [];
+  try { list = await (await fetch('shortcuts/manifest.json')).json(); } catch { box.textContent = 'Shortcut list unavailable offline — open Settings once while online.'; return; }
+  box.replaceChildren();
+  for (const sc of list) {
+    const row = el('div', 'note'); const d = el('div');
+    const got = (settings.installedShortcuts || []).includes(sc.name);
+    d.append(el('b', null, sc.name), el('div', 'muted', sc.desc + (got ? ' · installed' : '')));
+    const a = el('a', 'btn', got ? 'Reinstall' : 'Install'); a.href = sc.file; a.setAttribute('download', sc.file.split('/').pop());
+    a.onclick = () => { settings.installedShortcuts = [...new Set([...(settings.installedShortcuts || []), sc.name])]; store.saveSettings(settings); setTimeout(renderShortcuts, 500); };
+    row.append(d, a); box.append(row);
+  }
+}
+
 function renderMacros() {
   const l = $('macroList'); l.replaceChildren();
   for (const m of store.macros()) {
@@ -516,6 +535,13 @@ function bind() {
     }
   });
 
+  // Continue a multi-step request after another app (e.g. Shortcuts) handed control back.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || busy) return;
+    const pending = store.pending(); if (!pending.length) return;
+    store.setPending(pending.slice(1));
+    setTimeout(() => send(pending[0]), 600);
+  });
   const net = () => { $('netPill').hidden = navigator.onLine; };
   addEventListener('online', net); addEventListener('offline', net); net();
 }

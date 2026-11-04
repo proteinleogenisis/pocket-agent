@@ -8,7 +8,8 @@ import { llm } from '../js/llm.js';
 import { parseAction, parseBuild, buildAndRun, files } from '../js/actions.js';
 import { parseWeb, normalize } from '../js/web.js';
 import { parseNet, weather, currency, webSearch, readPage, define, stackOverflow, packageInfo } from '../js/net.js';
-import { permissionFor } from '../js/agent.js';
+import { permissionFor, splitSteps, isFactual, classify } from '../js/agent.js';
+import { parseDevice, parseAppIntent, parseWhen } from '../js/device.js';
 const results = []; let pass = 0, fail = 0;
 const t = async (name, fn) => { document.getElementById('out').textContent = `running: ${name}\n` + results.join('\n'); try { await fn(); results.push('✓ ' + name); pass++; } catch (e) { results.push('✗ ' + name + ' — ' + (e?.message || e)); fail++; } };
 const eq = (a, b) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`); };
@@ -188,6 +189,30 @@ await t('LIVE: web search, Stack Overflow, page reader', async () => {
   const s = await webSearch('WebGPU Safari'); const s2 = await webSearch('python list comprehension'); const so = await stackOverflow('python reverse a list'); const pg = await readPage('https://example.com');
   eq([s.results.length >= 2, s.results.every(r => /^https?:/.test(r.url)), s2.used.includes('Stack Overflow'), so.results.length > 0 && so.results[0].snippet.length > 20, /Example Domain/.test(pg.title)], [true, true, true, true, true]);
 });
+await t('device commands', () => {
+  const D = (q) => { const r = parseDevice(normalize(q)); return r ? r.value.shortcut + '|' + r.value.input : null; };
+  eq([D('set brightness to 40%'), D('brightness max'), D('make the screen darker'), D('volume 70'), D('mute'), D('pause the music'), D('play'), D('next song'),
+      D('set a timer for 10 minutes'), D('timer for 2 hours'), D('30 second timer'), D('remind me to call mom'), D("what's my battery"), D('say hello there'),
+      D('turn off bluetooth'), D('wifi on'), D('what is a closure'), D('play lofi on spotify')],
+     ['PA Brightness|0.4', 'PA Brightness|1', 'PA Brightness|0.25', 'PA Volume|0.7', 'PA Volume|0', 'PA Play Pause|', 'PA Play Pause|', 'PA Next Track|',
+      'PA Timer|10', 'PA Timer|120', 'PA Timer|0.5', 'PA Reminder|call mom', 'PA Battery|', 'PA Speak|hello there', 'PA Bluetooth Off|', 'PA WiFi On|', null, null]);
+});
+await t('calendar events with natural dates', () => {
+  const now = new Date('2026-11-04T10:00:00'); const w = parseWhen('dentist tomorrow at 3pm', now);
+  eq([w.start, w.end, w.rest, parseWhen('lunch at noon', now).start, parseWhen('call on friday', now).start.startsWith('November 6, 2026'), parseWhen('nothing here', now)],
+     ['November 5, 2026 at 3:00 PM', 'November 5, 2026 at 4:00 PM', 'dentist', 'November 4, 2026 at 12:00 PM', true, null]);
+  const e = parseDevice('add dentist to my calendar tomorrow at 3pm'); const v = JSON.parse(e.value.input);
+  eq([e.value.shortcut, v.t], ['PA Event', 'dentist']);
+});
+await t('apps open straight to content', () => {
+  const A = (q) => { const r = parseAppIntent(normalize(q)); return r ? r.value.app + ' | ' + r.value.web : null; };
+  eq([A('play lofi beats on spotify'), A('open the youtube app'), A('open discord'), A('search the youtube app for cats'), A('open safari')],
+     ['spotify:search:lofi%20beats | https://open.spotify.com/search/lofi%20beats', 'youtube:// | https://www.youtube.com/', 'discord:// | https://discord.com/app',
+      'youtube://results?search_query=cats | https://www.youtube.com/results?search_query=cats', null]);
+});
+await t('multi-step splitting', () => eq([splitSteps('set brightness to 30% and play music'), splitSteps('what is 2+2 and uppercase hello'), splitSteps('save a note: eggs and milk'), splitSteps('search youtube for tom and jerry'), splitSteps('write a function and explain it')],
+  [['set brightness to 30%', 'play music'], ['what is 2+2', 'uppercase hello'], null, null, null]));
+await t('factual questions get grounded, code questions do not', () => eq([isFactual('who was ada lovelace'), isFactual('how do black holes form'), isFactual('how do I write a python function'), isFactual('what is your name'), isFactual('hi')], [true, true, false, false, false]));
 document.getElementById('out').textContent = `${pass} passed, ${fail} failed\n\n` + results.join('\n');
 window.__tests = { pass, fail, results };
 </script>

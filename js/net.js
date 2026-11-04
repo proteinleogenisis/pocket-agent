@@ -63,6 +63,19 @@ export async function webSearch(query, { max = 6 } = {}) {
   return { results: uniq.sort((x, y) => rank(x) - rank(y)).slice(0, max), used: [...used], errors };
 }
 
+// Quick fact lookup used to ground answers: best Wikipedia article summary, only if it looks relevant.
+export async function wikiLookup(query) {
+  const words = query.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 3 && !/^(what|which|where|when|does|about|explain|tell|describe|there|their|these|those|with|from|that|this|have|work|works)$/.test(w));
+  if (!words.length) return null;
+  const j = await get(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${enc(words.join(' '))}&srlimit=1&format=json&origin=*`, { timeout: 4000 });
+  const hit = j.query?.search?.[0]; if (!hit) return null;
+  const sm = await get(`https://en.wikipedia.org/api/rest_v1/page/summary/${enc(hit.title.replace(/ /g, '_'))}`, { timeout: 4000 });
+  const text = (sm.extract || '').trim(); if (!text) return null;
+  const hay = (hit.title + ' ' + text).toLowerCase();
+  if (words.filter((w) => hay.includes(w)).length < Math.min(2, words.length)) return null;   // not relevant enough
+  return { title: hit.title, url: `https://en.wikipedia.org/wiki/${enc(hit.title.replace(/ /g, '_'))}`, text };
+}
+
 export async function readPage(url, { maxChars = 6000 } = {}) {
   const md = await get(READER + url, { json: false, timeout: 20000, headers: { Accept: 'text/plain' } });
   const title = (/^Title:\s*(.+)$/m.exec(md) || [])[1] || host(url);
