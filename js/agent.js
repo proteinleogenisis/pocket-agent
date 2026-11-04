@@ -304,7 +304,7 @@ export async function handle({ text, llm, settings, history, screen, ui }) {
     if (save) { const body = (save[6] ?? save[5]).trim(); if (body) call = { tool: 'save_note', input: body.replace(/\s+-\s+/, '\n') }; }
     const find = /^\s*(please\s+)?(search|find|look (for|in)|check)\s+(in\s+)?(my\s+)?notes\s+(for|about)\s+(.+)$/i.exec(text);
     if (!call && find) call = { tool: 'search_notes', input: find[7].replace(/[?.!]+$/, '') };
-    if (!call && /^\s*(show|list|open|see)\s+(me\s+)?(all\s+)?(my\s+)?(saved\s+)?notes\s*[?.!]*$/i.test(text)) call = { tool: 'search_notes', input: '*' };
+    if (!call && /^\s*(show|list|see)\s+(me\s+)?(all\s+)?(my\s+)?(saved\s+)?notes\s*[?.!]*$/i.test(text)) call = { tool: 'search_notes', input: '*' };
   }
   if (!call) {
     // "run/execute (this) python|javascript: <code>" → run exactly that code, no model involved.

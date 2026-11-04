@@ -32,7 +32,7 @@ await t('notes phrasing is deterministic', async () => { const seen = []; const 
   const { handle, TOOLS } = await import('../js/agent.js'); const orig = { s: TOOLS.save_note.run, f: TOOLS.search_notes.run };
   TOOLS.save_note.run = async (v) => { seen.push('save|' + v); return { ok: true, output: '' }; }; TOOLS.search_notes.run = async (v) => { seen.push('find|' + v); return { ok: true, output: '' }; };
   const st = { permissions: {}, autoTools: true, contextWindow: 1024 }; const fake = { ready: false, recoverable: false };
-  for (const q of ['save a note: Shopping list - eggs and milk', 'remember that the gate code is 4412', 'search my notes for eggs', 'show my notes']) await handle({ text: q, llm: fake, settings: st, history: [], screen: null, ui });
+  for (const q of ['save a note: Shopping list - eggs and milk', 'remember that the gate code is 4412', 'search my notes for eggs', 'show my notes', 'open notes']) await handle({ text: q, llm: fake, settings: st, history: [], screen: null, ui });
   TOOLS.save_note.run = orig.s; TOOLS.search_notes.run = orig.f;
   eq(seen, ['save|Shopping list\neggs and milk', 'save|the gate code is 4412', 'find|eggs', 'find|*']); });
 await t('slash parse', () => eq(parseSlash('/calc 1+1'), { tool: 'calculate', input: '1+1' }));
