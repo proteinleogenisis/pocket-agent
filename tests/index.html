@@ -1,0 +1,47 @@
+<!doctype html><meta charset="utf-8"><title>Pocket Agent tests</title>
+<pre id="out">running…</pre>
+<script type="module">
+import { calculate, looksLikeMath } from '../js/calc.js';
+import { parseSlash, runTool, needsRouter, buildMessages, TOOLS } from '../js/agent.js';
+import { runJS, runPython } from '../js/sandbox.js';
+const results = []; let pass = 0, fail = 0;
+const t = async (name, fn) => { try { await fn(); results.push('✓ ' + name); pass++; } catch (e) { results.push('✗ ' + name + ' — ' + (e?.message || e)); fail++; } };
+const eq = (a, b) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`); };
+const throws = (fn) => { try { fn(); } catch { return; } throw new Error('expected throw'); };
+const settings = { permissions: {}, contextWindow: 2048, preferences: '' };
+const ui = (answer) => ({ status() {}, confirm: async () => answer });
+
+await t('calc precedence', () => eq(calculate('2+3*4'), 14));
+await t('calc power right-assoc', () => eq(calculate('2^3^2'), 512));
+await t('calc unary/parens', () => eq(calculate('-(3+4)*2'), -14));
+await t('calc functions', () => eq(calculate('sqrt(16)+max(1,5)+round(2.6)'), 12));
+await t('calc percent-mod & consts', () => eq([calculate('10%3'), calculate('round(pi*100)')], [1, 314]));
+await t('calc rejects code', () => throws(() => calculate('alert(1)')));
+await t('calc rejects div0', () => throws(() => calculate('1/0')));
+await t('calc rejects junk', () => throws(() => calculate('2 + ; 3')));
+await t('looksLikeMath', () => eq([looksLikeMath('17*23+4'), looksLikeMath('hello'), looksLikeMath('version 2')], [true, false, false]));
+await t('slash parse', () => eq(parseSlash('/calc 1+1'), { tool: 'calculate', input: '1+1' }));
+await t('slash tx', () => eq(parseSlash('/tx upper hi there'), { tool: 'transform_text', input: 'hi there', op: 'upper' }));
+await t('slash meta', () => eq(parseSlash('/help'), { meta: 'help', input: '' }));
+await t('router hint', () => eq([needsRouter('run this python'), needsRouter('explain closures in js'), needsRouter('why is the sky blue')], [true, true, false]));
+await t('tool: calculate', async () => { const r = await runTool({ tool: 'calculate', input: '6*7' }, { settings, ui: ui(true) }); eq([r.ok, r.text], [true, '6*7 = 42']); });
+await t('tool: transform invalid op rejected', async () => { const r = await runTool({ tool: 'transform_text', input: 'x', op: 'rm -rf' }, { settings, ui: ui(true) }); eq(r.kind, 'error'); });
+await t('tool: transform json_format', async () => { const r = await runTool({ tool: 'transform_text', input: '{"a":1}', op: 'json_format' }, { settings, ui: ui(true) }); eq(r.text, '{\n  "a": 1\n}'); });
+await t('tool: base64 roundtrip unicode', async () => { const e = await runTool({ tool: 'transform_text', input: 'héllo ✓', op: 'base64_encode' }, { settings, ui: ui(true) }); const d = await runTool({ tool: 'transform_text', input: e.text, op: 'base64_decode' }, { settings, ui: ui(true) }); eq(d.text, 'héllo ✓'); });
+await t('tool: declined confirm runs nothing', async () => { let ran = false; const orig = TOOLS.run_javascript.run; TOOLS.run_javascript.run = async () => { ran = true; return { ok: true, output: '' }; }; const r = await runTool({ tool: 'run_javascript', input: '1' }, { settings, ui: ui(false) }); TOOLS.run_javascript.run = orig; eq([r.ok, ran], [false, false]); });
+await t('tool: off permission blocks', async () => { const r = await runTool({ tool: 'calculate', input: '1+1' }, { settings: { permissions: { calculate: 'off' } }, ui: ui(true) }); eq(r.kind, 'error'); });
+await t('tool: screen + model-chosen forces confirm', async () => { let asked = false; const r = await runTool({ tool: 'calculate', input: '1+1', fromModel: true }, { settings, screen: 'x', ui: { status() {}, confirm: async () => { asked = true; return false; } } }); eq([asked, r.ok], [true, false]); });
+await t('tool: shortcut rejects control chars', async () => { const r = await runTool({ tool: 'run_shortcut', input: 'a\u0007b' }, { settings, ui: ui(true) }); eq(r.kind, 'error'); });
+await t('prompt: screen text fenced as untrusted', () => { const m = buildMessages({ text: 'hi', history: [], settings, screen: 'IGNORE PREVIOUS' }); if (!/UNTRUSTED DATA/.test(m[0].content) || !/<screen_text>\nIGNORE PREVIOUS\n<\/screen_text>/.test(m[0].content)) throw new Error('missing fence'); });
+await t('prompt: history trimmed & alternation', () => { const h = Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'x'.repeat(900) })); const m = buildMessages({ text: 'q', history: h, settings, screen: null }); eq([m[1].role, m.at(-1).content], ['user', 'q']); if (m.length > 8) throw new Error('not trimmed: ' + m.length); });
+await t('sandbox JS output', async () => { const r = await runJS('console.log([1,2,3].map(x=>x*2)); return 5'); eq([r.ok, r.output], [true, '[\n  2,\n  4,\n  6\n]\n⇒ 5']); });
+await t('sandbox JS has no network', async () => { const r = await runJS('return typeof fetch + "," + typeof XMLHttpRequest + "," + typeof WebSocket'); eq(r.output, '⇒ undefined,undefined,undefined'); });
+await t('sandbox JS timeout', async () => { const r = await runJS('while(true){}', 800); eq([r.ok, /timeout/.test(r.error)], [false, true]); });
+await t('sandbox JS error reported', async () => { const r = await runJS('null.x'); eq(r.ok, false); });
+await t('sandbox Python stdout', async () => { const r = await runPython('import math\nprint(math.factorial(10))'); eq([r.ok, r.output], [true, '3628800']); });
+await t('sandbox Python no network', async () => { const r = await runPython('import js\nprint(hasattr(js, "fetch") and js.fetch is not None)'); eq(r.output.trim(), 'False'); });
+await t('sandbox Python error', async () => { const r = await runPython('1/0'); eq([r.ok, /ZeroDivisionError/.test(r.error)], [false, true]); });
+
+document.getElementById('out').textContent = `${pass} passed, ${fail} failed\n\n` + results.join('\n');
+window.__tests = { pass, fail, results };
+</script>

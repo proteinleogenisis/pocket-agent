@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; worker-src 'self' blob:; connect-src 'self' blob: data: https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pocket Agent">
+<meta name="theme-color" content="#111317">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<title>Pocket Agent</title>
+</head>
+<body>
+<div id="app">
+  <header class="bar">
+    <div class="brand"><span class="dot" id="modelDot"></span><span id="modelLabel">No model</span></div>
+    <button id="screenPill" class="pill screen" hidden title="Screen context is ON — tap or ⌘⇧X to clear">● Screen <span id="screenCount"></span> ✕</button>
+    <div class="spacer"></div>
+    <span class="pill offline" id="netPill" hidden>offline</span>
+    <button class="icon" id="newChatBtn" title="New chat (⌘⇧N)" aria-label="New chat">＋</button>
+    <button class="icon" id="settingsBtn" title="Settings" aria-label="Settings">⚙︎</button>
+  </header>
+
+  <main id="log" aria-live="polite"></main>
+
+  <div id="status" class="status" hidden></div>
+
+  <form id="composer" autocomplete="off">
+    <button type="button" class="icon" id="attachBtn" title="Add screenshot (or paste with ⌘V)" aria-label="Add screenshot">⧉</button>
+    <input type="file" id="fileInput" accept="image/*" hidden>
+    <textarea id="input" rows="1" placeholder="Ask, or /help" enterkeyhint="send" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+    <button type="submit" class="send" id="sendBtn" aria-label="Send">↑</button>
+  </form>
+</div>
+
+<dialog id="confirmDlg">
+  <form method="dialog">
+    <h3 id="confirmTitle">Run this?</h3>
+    <p id="confirmWhy" class="muted"></p>
+    <pre id="confirmBody"></pre>
+    <div class="row end">
+      <button value="no" class="btn">Cancel (Esc)</button>
+      <button value="yes" class="btn primary" id="confirmYes">Run (↩)</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="settingsDlg">
+  <div class="sheet">
+    <div class="row"><h2>Settings</h2><div class="spacer"></div><button class="btn" id="closeSettings">Done</button></div>
+
+    <section>
+      <h3>Model</h3>
+      <p class="muted" id="gpuInfo">Checking WebGPU…</p>
+      <select id="modelSelect"></select>
+      <div class="row wrap">
+        <button class="btn primary" id="loadModelBtn">Download &amp; load</button>
+        <button class="btn" id="unloadModelBtn">Unload</button>
+        <button class="btn danger" id="deleteModelBtn">Delete download</button>
+      </div>
+      <div class="progress" id="loadProgress" hidden><div></div></div>
+      <p class="muted small" id="loadText"></p>
+      <label class="row">Context window
+        <select id="ctxSelect"><option value="1024">1k (least memory)</option><option value="2048">2k</option><option value="4096">4k</option></select>
+      </label>
+      <label class="row">Auto-load last model on open <input type="checkbox" id="autoLoad"></label>
+    </section>
+
+    <section>
+      <h3>Benchmark</h3>
+      <p class="muted small">Measures load time, speed, and tool-routing accuracy of the loaded model on this device.</p>
+      <button class="btn" id="benchBtn">Run benchmark</button>
+      <pre id="benchOut" class="small"></pre>
+    </section>
+
+    <section>
+      <h3>Screen context &amp; privacy</h3>
+      <label class="row">Clear screen text after each answer <input type="checkbox" id="autoClear"></label>
+      <label class="row">Save chats that used screen text <input type="checkbox" id="saveScreen"></label>
+      <p class="muted small">Screenshots are read on this iPad with OCR, kept in memory only, and released right after. Nothing is uploaded. The only network traffic is the one-time app and model download.</p>
+      <button class="btn" id="showScreenBtn">Show current screen text</button>
+    </section>
+
+    <section>
+      <h3>Tools</h3>
+      <label class="row">Let the model pick tools <input type="checkbox" id="autoTools"></label>
+      <div id="toolPerms"></div>
+    </section>
+
+    <section>
+      <h3>Saved preferences</h3>
+      <textarea id="prefs" rows="3" placeholder="e.g. Prefer TypeScript. Keep answers short."></textarea>
+    </section>
+
+    <section>
+      <h3>Macros</h3>
+      <p class="muted small">Run with <code>/m name</code>. One command per line, e.g. <code>/calc 2+2</code>.</p>
+      <div id="macroList"></div>
+      <div class="row wrap"><input id="macroName" placeholder="name"><button class="btn" id="macroAdd">Add / update</button></div>
+      <textarea id="macroBody" rows="3" placeholder="/notes *&#10;/calc 365*24"></textarea>
+    </section>
+
+    <section>
+      <h3>Notes</h3>
+      <div id="notesList" class="small"></div>
+    </section>
+
+    <section>
+      <h3>Action log</h3>
+      <p class="muted small">Tool name and outcome only — never inputs or outputs.</p>
+      <pre id="actionLog" class="small"></pre>
+    </section>
+
+    <section>
+      <h3>Data</h3>
+      <div class="row wrap">
+        <button class="btn" id="exportBtn">Export notes &amp; settings</button>
+        <button class="btn danger" id="wipeBtn">Erase all local data</button>
+      </div>
+      <p class="muted small" id="storageInfo"></p>
+    </section>
+  </div>
+</dialog>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
