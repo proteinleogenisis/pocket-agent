@@ -9,6 +9,14 @@ function init() {
       for (const k of ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'importScripts']) {
         try { Object.defineProperty(self, k, { value: undefined, configurable: false, writable: false }); } catch {}
       }
+      // There's no browser window inside the sandbox; explain instead of crashing.
+      py.runPython(`
+import webbrowser
+def _no_browser(url, *a, **k):
+    print(f"[sandbox] Python can't open {url} here. Ask Pocket Agent: open {url}")
+    return False
+webbrowser.open = webbrowser.open_new = webbrowser.open_new_tab = _no_browser
+`);
       return py;
     });
   }

@@ -2,7 +2,7 @@
 <pre id="out">running…</pre>
 <script type="module">
 import { calculate, looksLikeMath, mathFromWords } from '../js/calc.js';
-import { parseSlash, runTool, needsRouter, buildMessages, TOOLS, parseTransform } from '../js/agent.js';
+import { parseSlash, runTool, needsRouter, buildMessages, TOOLS, parseTransform, resolveOpenTarget } from '../js/agent.js';
 import { runJS, runPython } from '../js/sandbox.js';
 import { llm } from '../js/llm.js';
 const results = []; let pass = 0, fail = 0;
@@ -22,6 +22,12 @@ await t('calc rejects div0', () => throws(() => calculate('1/0')));
 await t('calc rejects junk', () => throws(() => calculate('2 + ; 3')));
 await t('looksLikeMath', () => eq([looksLikeMath('17*23+4'), looksLikeMath('hello'), looksLikeMath('version 2')], [true, false, false]));
 await t('math from words', () => eq(['what is 15% of 240', "what's 2 to the power of 16?", '12 times 12', 'calculate 100 divided by 8', 'square root of 81 plus 1', 'write a function of n'].map(q => { const e = mathFromWords(q); return e && calculate(e); }), [36, 65536, 144, 12.5, 10, null]));
+await t('open targets', () => eq([resolveOpenTarget('Safari')?.url, resolveOpenTarget('the notes app')?.url, resolveOpenTarget('example.com/docs')?.url, resolveOpenTarget('my bank password')], ['x-safari-https://www.google.com', 'mobilenotes://', 'x-safari-https://example.com/docs', null]));
+await t('run-code phrasing is deterministic', async () => { const seen = []; const ui = { status() {}, token() {}, confirm: async (c) => { seen.push(c.tool + '|' + c.input); return false; } };
+  const { handle } = await import('../js/agent.js'); const fake = { ready: false, recoverable: false };
+  await handle({ text: 'run this python: print(1)', llm: fake, settings: { permissions: {}, autoTools: true, contextWindow: 2048 }, history: [], screen: null, ui });
+  await handle({ text: 'execute javascript: console.log(2)', llm: fake, settings: { permissions: {}, autoTools: true, contextWindow: 2048 }, history: [], screen: null, ui });
+  eq(seen, ['run_python|print(1)', 'run_javascript|console.log(2)']); });
 await t('slash parse', () => eq(parseSlash('/calc 1+1'), { tool: 'calculate', input: '1+1' }));
 await t('slash tx', () => eq(parseSlash('/tx upper hi there'), { tool: 'transform_text', input: 'hi there', op: 'upper' }));
 await t('slash meta', () => eq(parseSlash('/help'), { meta: 'help', input: '' }));

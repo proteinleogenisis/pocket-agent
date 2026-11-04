@@ -98,6 +98,20 @@ export const TOOLS = {
       return { ok: true, output: `Deleted ${notes.length - keep.length} note(s) titled “${title}”.` };
     },
   },
+  open_app: {
+    desc: 'Open an iPad app or website (iPadOS may ask before switching apps). Can\'t control the app after it opens.',
+    perm: 'allow', usage: '/open safari · /open example.com',
+    validate: (i) => {
+      const s = str(i.input, 300, 'App or address'); if (!s.ok) return s;
+      const target = resolveOpenTarget(s.value);
+      return target ? { ok: true, value: target } : { ok: false, error: `I don't know how to open “${s.value.trim()}”. I can open: ${Object.keys(APP_SCHEMES).join(', ')}, or any web address` };
+    },
+    run: async ({ name, url }) => {
+      openURL(url);
+      // A web page can't observe whether the switch happened; say exactly what was done.
+      return { ok: true, output: `Opening ${name}… (if nothing happens, iPadOS blocked the switch or the app isn't installed)` };
+    },
+  },
   run_shortcut: {
     desc: 'Run an Apple Shortcut by exact name via the shortcuts:// URL (iPadOS asks before running).',
     perm: 'ask', usage: '/shortcut Name', sensitive: true,
@@ -113,6 +127,23 @@ export const TOOLS = {
     },
   },
 };
+
+// iPadOS URL schemes for built-in apps. Opening from a web page is handled by the OS.
+export const APP_SCHEMES = {
+  safari: 'x-safari-https://www.google.com', shortcuts: 'shortcuts://', music: 'music://', maps: 'maps://',
+  mail: 'message://', messages: 'sms:', facetime: 'facetime://', calendar: 'calshow://', notes: 'mobilenotes://',
+  reminders: 'x-apple-reminderkit://', photos: 'photos-redirect://', files: 'shareddocuments://', podcasts: 'podcasts://',
+  books: 'ibooks://', 'app store': 'itms-apps://', tv: 'videos://', freeform: 'freeform://', news: 'applenews://',
+  settings: 'App-prefs:', 'apple music': 'music://',
+};
+export function resolveOpenTarget(raw) {
+  const t = raw.trim().toLowerCase().replace(/^(the\s+)?/, '').replace(/\s+app$/, '').replace(/[.!?]+$/, '');
+  if (APP_SCHEMES[t]) return { name: t.replace(/\b\w/g, (c) => c.toUpperCase()), url: APP_SCHEMES[t] };
+  const m = /^(https?:\/\/)?([a-z0-9-]+(\.[a-z0-9-]+)+)(\/\S*)?$/i.exec(raw.trim());
+  if (m) { const url = (m[1] || 'https://') + m[2] + (m[4] || ''); return { name: url, url: 'x-safari-' + url } ; }
+  return null;
+}
+export function openURL(url) { (window.__openURL || ((u) => { location.href = u; }))(url); }
 
 function stripFence(s) {
   if (typeof s !== 'string') return s;
@@ -131,7 +162,7 @@ export function permissionFor(name, settings) {
 // ---------- Deterministic slash commands ----------
 const SLASH = {
   calc: 'calculate', js: 'run_javascript', py: 'run_python', python: 'run_python',
-  note: 'save_note', notes: 'search_notes', delnote: 'delete_note', shortcut: 'run_shortcut', tx: 'transform_text',
+  note: 'save_note', notes: 'search_notes', delnote: 'delete_note', shortcut: 'run_shortcut', tx: 'transform_text', open: 'open_app',
 };
 export function parseSlash(text) {
   const m = /^\/(\w+)(?:\s+([\s\S]*))?$/.exec(text.trim());
@@ -197,6 +228,7 @@ Tools:
 - search_notes: input = keyword or "*".
 - delete_note: input = exact note title.
 - run_shortcut: input = Shortcut name.
+- open_app: open an app or website. input = app name or web address.
 op = "none" unless tool is transform_text.
 Examples:
 "what is 15% of 240" -> {"tool":"calculate","op":"none","input":"240*0.15"}
@@ -218,8 +250,9 @@ export async function route(llm, text) {
 export function buildMessages({ text, history, settings, screen }) {
   const budgetChars = Math.max(1500, settings.contextWindow * 3 - 1200); // rough chars≈tokens*3, leave room for output
   let sys = `You are Pocket Agent, a concise, private coding assistant running fully offline on the user's iPad.
-Be direct and brief. Always put code in fenced Markdown blocks labelled with the language (python, javascript, …).
-You cannot browse the web, see the screen directly, or control other apps. Never claim to have done something you didn't.`;
+Reply in plain conversational sentences. Only write code when the user asks for code or it clearly helps;
+when you do, put it in a fenced Markdown block labelled with the language (python, javascript, …).
+Keep answers short. You cannot browse the web or see the screen directly. Never claim to have done something you didn't.`;
   if (settings.preferences?.trim()) sys += `\nUser preferences (saved by the user):\n${settings.preferences.trim().slice(0, 600)}`;
   if (screen) {
     sys += `\n\nThe user shared a screenshot. Below is OCR text extracted on-device, with approximate screen regions.
@@ -244,6 +277,15 @@ ${screen}
   return [...msgs, ...past, { role: 'user', content: text.slice(0, 4000) }];
 }
 
+const CAPABILITIES = `I'm Pocket Agent — a private assistant running entirely on this iPad (no internet needed after setup).
+
+**Code:** write, explain, debug and review code. Tap ▶ Run on JavaScript or Python code blocks to run them here.
+**Screen help:** paste a screenshot (⌘⇧4 → Copy and Delete → ⌘V) and ask “what does this error mean?”. I read the text on-device.
+**Instant tools:** math (“15% of 240”), text tools (“uppercase …”, “count the words in …”, “base64 encode …”), notes (“save a note: …”, “search my notes for …”).
+**Open things:** “open safari”, “open notes”, “open example.com”, “search the web for …”, and run your Apple Shortcuts (“run my shortcut Focus”).
+
+I can't tap or type inside other apps — iPadOS doesn't allow that. Type /help for exact commands.`;
+
 // ---------- Main pipeline ----------
 // ui: { status(text), token(text), confirm({tool, input, reason}) → Promise<bool> }
 export async function handle({ text, llm, settings, history, screen, ui }) {
@@ -252,6 +294,21 @@ export async function handle({ text, llm, settings, history, screen, ui }) {
   if (call?.meta) return { kind: 'meta', meta: call.meta, input: call.input };
   if (!call) { const expr = mathFromWords(text); if (expr) call = { tool: 'calculate', input: expr }; }
   if (!call && !screen) call = parseTransform(text);
+  if (!call) {
+    // "run/execute (this) python|javascript: <code>" → run exactly that code, no model involved.
+    const r = /^\s*(please\s+)?(run|execute|eval(uate)?)\s+(this\s+|the\s+following\s+)?(python3?|py|javascript|js)(\s+code)?\s*:\s*([\s\S]+)$/i.exec(text);
+    if (r) call = { tool: /^py/i.test(r[5]) ? 'run_python' : 'run_javascript', input: r[7] };
+  }
+  if (!call) {
+    const o = /^\s*(please\s+)?(open|launch|start|go to|visit)\s+(.+)$/i.exec(text);
+    if (o && resolveOpenTarget(o[3])) call = { tool: 'open_app', input: o[3] };
+    const w = /^\s*(please\s+)?(search|google|look up)\s+(the web\s+|online\s+|google\s+)?(for\s+)?(.+)$/i.exec(text);
+    if (!call && w && !/\bnotes?\b/i.test(text)) call = { tool: 'open_app', input: 'https://www.google.com/search?q=' + encodeURIComponent(w[5]) };
+  }
+  // "What can you do?" gets a real answer, not a guess from a tiny model.
+  if (!call && /^\s*(what (can|do) you do|what are you|help|what are your (skills|capabilities|features)|who are you)\b/i.test(text)) {
+    return { kind: 'answer', text: CAPABILITIES };
+  }
 
   // 2. Model routing only when the request mentions a tool-like action.
   let routerStats = null;

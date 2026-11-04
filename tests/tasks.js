@@ -45,6 +45,12 @@ export const TASKS = [
   ['write a javascript function that reverses a string', () => codeWorks('js', '"abc"', 'cba')],
   ['write a python function that returns the nth fibonacci number', () => codeWorks('py', 10, '55')],
   ['screen:What does this error mean and what is the fix?', has('undefined')],
+  ['hello', (t) => !/```|print\(|console\.log/.test(t) && !(replyEl?.querySelector('.codeblock')) || 'replied with code to a greeting'],
+  ['what can you do', has('Code', 'Screen', 'open')],
+  ['open safari', () => opened.at(-1)?.startsWith('x-safari-https://') || `opened ${opened.at(-1)}`],
+  ['open notes', () => opened.at(-1) === 'mobilenotes://' || `opened ${opened.at(-1)}`],
+  ['search the web for webgpu ipad', () => /google\.com\/search\?q=webgpu%20ipad/.test(opened.at(-1) || '') || `opened ${opened.at(-1)}`],
+  ['run this python: import webbrowser; webbrowser.open("https://example.com")', has("can't open")],
 ];
 
 function errorScreenshot() {
@@ -55,7 +61,9 @@ function errorScreenshot() {
   return new Promise((r) => c.toBlob(r, 'image/png'));
 }
 
+const opened = [];
 export async function runTasks() {
+  window.__openURL = (u) => opened.push(u);   // don't actually leave the app during tests
   // Auto-accept confirmations in test mode.
   const dlg = document.getElementById('confirmDlg');
   new MutationObserver(() => { if (dlg.open) setTimeout(() => document.getElementById('confirmYes').click(), 30); }).observe(dlg, { attributes: true, attributeFilter: ['open'] });
