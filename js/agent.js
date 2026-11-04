@@ -225,7 +225,7 @@ export async function handle({ text, llm, settings, history, screen, ui }) {
 
   // 2. Model routing only when the request mentions a tool-like action.
   let routerStats = null;
-  if (!call && settings.autoTools && llm.ready && needsRouter(text) && !screen) {
+  if (!call && settings.autoTools && (llm.ready || llm.recoverable) && needsRouter(text) && !screen) {
     ui.status('Choosing a tool…');
     try {
       const r = await route(llm, text);
@@ -237,7 +237,7 @@ export async function handle({ text, llm, settings, history, screen, ui }) {
   if (call) return runTool(call, { settings, screen, ui, routerStats });
 
   // 3. Plain answer.
-  if (!llm.ready) return { kind: 'error', text: 'No model loaded. Open Settings (⚙︎) and load a model, or use a /command.' };
+  if (!llm.ready && !llm.recoverable) return { kind: 'error', text: 'No model loaded. Open Settings (⚙︎) and load a model, or use a /command.' };
   ui.status(screen ? 'Thinking about the screen text…' : 'Thinking…');
   const messages = buildMessages({ text, history, settings, screen });
   const { text: out, stats } = await llm.stream(messages, { onToken: ui.token, temperature: settings.temperature });

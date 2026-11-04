@@ -51,19 +51,34 @@ export function modelRecord(id) { return APP_CONFIG.model_list.find(m => m.model
 export async function isCached(id) { try { return await hasModelInCache(id, APP_CONFIG); } catch { return false; } }
 export async function deleteCached(id) { await deleteModelAllInfoInCache(id, APP_CONFIG); }
 
+// iPadOS can take the GPU away (app backgrounded, Slide Over hidden, memory pressure).
+// WebLLM then disposes its runtime and every later call throws "…has already been disposed".
+const GPU_LOST = /disposed|device (was )?lost|DeviceLost|GPUDevice|Instance\.dispose|GPU connection|out of memory/i;
+export const isGpuLost = (e) => GPU_LOST.test(String(e?.message || e));
+
 class LocalLLM {
   engine = null; worker = null; modelId = null; loadSeconds = 0; busy = false;
+  lastLoad = null;           // { id, contextWindow } — used to rebuild after GPU loss
+  loading = null;            // in-flight load promise: loads are serialized
+  onRecover = null;          // UI hook: (phase) => void
 
-  async load(id, { contextWindow = 2048, onProgress } = {}) {
-    if (this.modelId === id && this.engine) return;
-    await this.unload();
-    const t0 = performance.now();
-    this.worker = new Worker(new URL('./llm-worker.js', import.meta.url), { type: 'module' });
-    this.engine = await CreateWebWorkerMLCEngine(this.worker, id,
-      { appConfig: APP_CONFIG, initProgressCallback: (r) => onProgress?.(r) },
-      { context_window_size: contextWindow });
-    this.modelId = id;
-    this.loadSeconds = (performance.now() - t0) / 1000;
+  load(id, opts = {}) {
+    const run = async () => {
+      if (this.modelId === id && this.engine) return;
+      await this.unload();
+      const { contextWindow = 2048, onProgress } = opts;
+      const t0 = performance.now();
+      this.worker = new Worker(new URL('./llm-worker.js', import.meta.url), { type: 'module' });
+      this.engine = await CreateWebWorkerMLCEngine(this.worker, id,
+        { appConfig: APP_CONFIG, initProgressCallback: (r) => onProgress?.(r) },
+        { context_window_size: contextWindow });
+      this.modelId = id;
+      this.lastLoad = { id, contextWindow };
+      this.loadSeconds = (performance.now() - t0) / 1000;
+    };
+    const p = (this.loading || Promise.resolve()).catch(() => {}).then(run);
+    this.loading = p.finally(() => { if (this.loading === p) this.loading = null; });
+    return p;
   }
 
   async unload() {
@@ -72,14 +87,37 @@ class LocalLLM {
     this.engine = null; this.worker = null; this.modelId = null;
   }
 
+  // Rebuild the engine from the on-device copy (no download) after the GPU was lost.
+  async recover() {
+    if (!this.lastLoad) throw new Error('Model not loaded');
+    const { id, contextWindow } = this.lastLoad;
+    this.onRecover?.('start');
+    this.worker?.terminate(); this.engine = null; this.worker = null; this.modelId = null;
+    try { await this.load(id, { contextWindow }); this.onRecover?.('done'); }
+    catch (e) { this.onRecover?.('failed'); throw e; }
+  }
+
   get ready() { return !!this.engine; }
+  get recoverable() { return !!this.lastLoad; }
+
+  async withRecovery(fn) {
+    if (this.loading) await this.loading.catch(() => {});
+    if (!this.engine) { if (this.lastLoad) await this.recover(); else throw new Error('Model not loaded'); }
+    this.busy = true;
+    try {
+      try { return await fn(); }
+      catch (e) {
+        if (!isGpuLost(e)) throw e;
+        await this.recover();           // one automatic retry
+        return await fn();
+      }
+    } finally { this.busy = false; }
+  }
 
   // Streams text. Returns { text, stats }.
-  async stream(messages, { onToken, temperature = 0.2, maxTokens = 768 } = {}) {
-    if (!this.engine) throw new Error('Model not loaded');
-    this.busy = true;
-    let text = '', stats = null;
-    try {
+  stream(messages, { onToken, temperature = 0.2, maxTokens = 768 } = {}) {
+    return this.withRecovery(async () => {
+      let text = '', stats = null;
       const chunks = await this.engine.chat.completions.create({
         messages, temperature, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true },
       });
@@ -88,21 +126,19 @@ class LocalLLM {
         if (d) { text += d; onToken?.(text); }
         if (c.usage) stats = c.usage;
       }
-    } finally { this.busy = false; }
-    return { text, stats };
+      return { text, stats };
+    });
   }
 
   // Grammar-constrained JSON: output is guaranteed to parse and match the schema's shape.
-  async json(messages, schema, { maxTokens = 160 } = {}) {
-    if (!this.engine) throw new Error('Model not loaded');
-    this.busy = true;
-    try {
+  json(messages, schema, { maxTokens = 160 } = {}) {
+    return this.withRecovery(async () => {
       const r = await this.engine.chat.completions.create({
         messages, temperature: 0, max_tokens: maxTokens,
         response_format: { type: 'json_object', schema: JSON.stringify(schema) },
       });
       return { value: JSON.parse(r.choices[0].message.content), stats: r.usage };
-    } finally { this.busy = false; }
+    });
   }
 
   interrupt() { try { this.engine?.interruptGenerate(); } catch {} }

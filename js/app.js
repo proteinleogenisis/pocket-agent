@@ -278,7 +278,7 @@ async function showStorage() {
 
 // ---------------- Benchmark ----------------
 async function benchmark() {
-  if (!llm.ready) { $('benchOut').textContent = 'Load a model first.'; return; }
+  if (!llm.ready && !llm.recoverable) { $('benchOut').textContent = 'Load a model first.'; return; }
   if (busy) return;
   setBusy(true);
   const out = $('benchOut'); out.textContent = 'Running…';
@@ -387,11 +387,11 @@ function bind() {
   $('settingsDlg').addEventListener('close', () => { saveSettingsFromUI(); input.focus(); });
   $('settingsDlg').addEventListener('change', saveSettingsFromUI);
   $('loadModelBtn').onclick = () => loadModel($('modelSelect').value);
-  $('unloadModelBtn').onclick = async () => { await llm.unload(); $('modelDot').className = 'dot'; $('modelLabel').textContent = 'No model'; $('loadText').textContent = 'Unloaded (still downloaded).'; };
+  $('unloadModelBtn').onclick = async () => { llm.lastLoad = null; await llm.unload(); $('modelDot').className = 'dot'; $('modelLabel').textContent = 'No model'; $('loadText').textContent = 'Unloaded (still downloaded).'; };
   $('deleteModelBtn').onclick = async () => {
     const id = $('modelSelect').value;
     if (!confirm(`Delete the downloaded files for ${id}? You'd need internet to download it again.`)) return;
-    if (llm.modelId === id) await llm.unload();
+    if (llm.lastLoad?.id === id) { llm.lastLoad = null; await llm.unload(); }
     await deleteCached(id); $('loadText').textContent = 'Deleted.'; initModelUI(); showStorage();
   };
   $('benchBtn').onclick = benchmark;
@@ -429,6 +429,13 @@ function bind() {
 }
 
 function stop() { if (busy) { llm.interrupt(); status('Stopping…'); } }
+
+// The iPad can reclaim the GPU while the app is in the background; the engine rebuilds itself.
+llm.onRecover = (phase) => {
+  if (phase === 'start') { $('modelDot').className = 'dot loading'; status('The iPad released the GPU — reloading the model from this device…'); }
+  if (phase === 'done') { $('modelDot').className = 'dot ready'; status('Model reloaded. Continuing…'); }
+  if (phase === 'failed') { $('modelDot').className = 'dot'; $('modelLabel').textContent = 'Model not loaded'; status(''); }
+};
 
 // ---------------- Boot ----------------
 async function boot() {
