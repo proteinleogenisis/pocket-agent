@@ -12,8 +12,9 @@ Hosting serves the static files only. Prompts, screenshots, OCR text, notes and 
 
 ## Development
 ```
-python3 -m http.server 8765        # then open http://localhost:8765
-open http://localhost:8765/tests/  # 30 in-browser tests
-python3 tools/build.py             # regenerate sw.js after changing files
+python3 tools/serve.py 8765        # no-cache dev server → http://localhost:8765
+open http://localhost:8765/tests/  # 41 in-browser unit tests
+python3 tools/build.py             # syntax-check modules + regenerate sw.js (run before every deploy)
 ```
-`?bench=<model-id>&ctx=2048` loads a model and runs the benchmark.
+`?bench=<model-id>&ctx=2048` loads a model and runs the benchmark. Add `&tasks=1` to run the
+end-to-end task suite (16 plain-English tasks whose results are verified; confirmations auto-accepted in this mode only).

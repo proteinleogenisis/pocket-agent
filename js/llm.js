@@ -79,7 +79,9 @@ class LocalLLM {
       this.loadSeconds = (performance.now() - t0) / 1000;
     };
     const p = (this.loading || Promise.resolve()).catch(() => {}).then(run);
-    this.loading = p.finally(() => { if (this.loading === p) this.loading = null; });
+    const tracked = p.finally(() => { if (this.loading === tracked) this.loading = null; });
+    tracked.catch(() => {});
+    this.loading = tracked;
     return p;
   }
 
@@ -102,28 +104,49 @@ class LocalLLM {
   get ready() { return !!this.engine; }
   get recoverable() { return !!this.lastLoad; }
 
-  async withRecovery(fn) {
+  // Runs a model call with two safety nets:
+  //  - GPU loss → rebuild from the on-device copy and retry once.
+  //  - Watchdog → if no progress for `idleMs`, interrupt; if still stuck, restart the engine.
+  async withRecovery(fn, { idleMs = 60000 } = {}) {
     if (this.loading) await this.loading.catch(() => {});
     if (!this.engine) { if (this.lastLoad) await this.recover(); else throw new Error('Model not loaded'); }
     this.busy = true;
+    const attempt = () => new Promise((resolve, reject) => {
+      let done = false, timer = null;
+      const finish = (f, v) => { if (!done) { done = true; clearTimeout(timer); f(v); } };
+      const arm = () => {
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          this.interrupt();                                   // ask nicely first
+          await new Promise((r) => setTimeout(r, 3000));
+          if (done) return;
+          finish(reject, new Error('STALLED'));
+          this.recover().catch(() => {});                     // then restart the engine
+        }, idleMs);
+      };
+      arm();
+      fn(arm).then((v) => finish(resolve, v), (e) => finish(reject, e));
+    });
     try {
-      try { return await fn(); }
+      try { return await attempt(); }
       catch (e) {
+        if (e?.message === 'STALLED') throw new Error('The model stopped responding, so it was restarted. Please try again.');
         if (!isGpuLost(e)) throw e;
         await this.recover();           // one automatic retry
-        return await fn();
+        return await attempt();
       }
     } finally { this.busy = false; }
   }
 
   // Streams text. Returns { text, stats }.
   stream(messages, { onToken, temperature = 0.2, maxTokens = 768 } = {}) {
-    return this.withRecovery(async () => {
+    return this.withRecovery(async (progress) => {
       let text = '', raw = '', stats = null;
       const chunks = await this.engine.chat.completions.create({
         messages, temperature, max_tokens: maxTokens, stream: true, stream_options: { include_usage: true }, ...this.extra(),
       });
       for await (const c of chunks) {
+        progress();
         const d = c.choices?.[0]?.delta?.content;
         if (d) { raw += d; text = stripThink(raw); onToken?.(text); }
         if (c.usage) stats = c.usage;
@@ -133,14 +156,14 @@ class LocalLLM {
   }
 
   // Grammar-constrained JSON: output is guaranteed to parse and match the schema's shape.
-  json(messages, schema, { maxTokens = 160 } = {}) {
+  json(messages, schema, { maxTokens = 160, idleMs = 30000 } = {}) {
     return this.withRecovery(async () => {
       const r = await this.engine.chat.completions.create({
         messages, temperature: 0, max_tokens: maxTokens,
         response_format: { type: 'json_object', schema: JSON.stringify(schema) }, ...this.extra(),
       });
       return { value: JSON.parse(stripThink(r.choices[0].message.content).trim()), stats: r.usage };
-    });
+    }, { idleMs });
   }
 
   extra() { return /^Qwen3/.test(this.modelId || '') ? { extra_body: { enable_thinking: false } } : {}; }

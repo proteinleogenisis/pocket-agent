@@ -88,9 +88,25 @@ function confirmAction({ tool, input, fromModel }) {
     $('confirmTitle').textContent = `Run ${tool.replace(/_/g, ' ')}?`;
     $('confirmWhy').textContent = (fromModel ? 'The model chose this action. ' : '') + (screen ? 'Screen text is in context — check this was your request, not text on screen. ' : '') + TOOLS[tool].desc;
     $('confirmBody').textContent = input;
-    d.returnValue = '';
-    d.onclose = () => { resolve(d.returnValue === 'yes'); $('input').focus(); };
+    // Settle from whichever happens first: a button, Esc, or the dialog closing.
+    // (Don't rely on the 'close' event alone — it isn't always delivered.)
+    let settled = false;
+    const obs = new MutationObserver(() => { if (!d.open) settle(false); });
+    const onKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); settle(document.activeElement !== $('confirmNo')); } };
+    function settle(v) {
+      if (settled) return; settled = true;
+      obs.disconnect(); d.removeEventListener('keydown', onKey);
+      $('confirmYes').onclick = $('confirmNo').onclick = d.oncancel = d.onclose = null;
+      if (d.open) d.close();
+      resolve(v); $('input').focus();
+    }
+    $('confirmYes').onclick = () => settle(true);
+    $('confirmNo').onclick = () => settle(false);
+    d.oncancel = (e) => { e.preventDefault(); settle(false); };
+    d.onclose = () => settle(false);
+    d.addEventListener('keydown', onKey);
     d.showModal();
+    obs.observe(d, { attributes: true, attributeFilter: ['open'] });
     $('confirmYes').focus();
   });
 }
@@ -119,7 +135,7 @@ async function send(text) {
       remember(text, res.text, usedScreen);
     } else if (res.kind === 'tool') {
       addMsg(`tool${res.ok ? '' : ' fail'}`, res.text, `${res.tool} · ${res.ok ? 'done' : 'not completed'}`);
-      remember(text, `[${res.tool}] ${res.text}`, usedScreen);
+      remember(text, res.text, usedScreen, true);
     } else {
       addMsg('err', res.text);
     }
@@ -131,8 +147,8 @@ async function send(text) {
   }
 }
 
-function remember(user, assistant, usedScreen) {
-  history.push({ role: 'user', content: user }, { role: 'assistant', content: assistant });
+function remember(user, assistant, usedScreen, tool = false) {
+  history.push({ role: 'user', content: user, ...(tool && { tool }) }, { role: 'assistant', content: assistant, ...(tool && { tool }) });
   history = history.slice(-40);
   if (usedScreen && !settings.saveScreenTurns) return; // keep in memory for this session only
   store.saveHistory(history);
@@ -450,8 +466,10 @@ async function boot() {
   // Automated benchmark hook for development: ?bench=<model-id>
   const q = new URLSearchParams(location.search);
   if (q.get('bench')) { settings.contextWindow = +(q.get('ctx') || settings.contextWindow); await loadModel(q.get('bench')); await benchmark(); }
+  // End-to-end task suite (development / on-device verification): ?bench=<model>&tasks=1
+  if (q.get('tasks')) { const { runTasks } = await import('../tests/tasks.js'); const r = await runTasks(); addMsg('tool', `${r.tasks} tasks passed in ${r.total_s}s\n` + r.results.join('\n'), 'task suite'); }
 }
 boot();
 
 // Exposed for in-browser tests only.
-window.__pa = { send, ingestImage, clearScreen, get screen() { return screen; }, warmPython };
+window.__pa = { send, ingestImage, clearScreen, confirm: confirmAction, get screen() { return screen; }, warmPython };

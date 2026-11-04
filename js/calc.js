@@ -91,3 +91,18 @@ export function looksLikeMath(s) {
   return /\d/.test(s) && /^[\d\s.+\-*/%^(),×÷a-z]*$/i.test(s) && /[+\-*/%^×÷]|\b(sqrt|sin|cos|tan|log|ln|abs|pow)\b/i.test(s)
     && (() => { try { calculate(s); return true; } catch { return false; } })();
 }
+
+// Turns everyday math phrasing into an expression: "15% of 240", "2 to the power of 16",
+// "12 times 12", "what's 100 divided by 8?". Returns null when it isn't math.
+export function mathFromWords(text) {
+  let s = text.trim().toLowerCase()
+    .replace(/^(please\s+)?(what('s| is| are)|calculate|calc|compute|how much is|evaluate|solve)\s*/, '')
+    .replace(/[?=.!]+\s*$/, '').trim();
+  s = s.replace(/(\d+(?:\.\d+)?)\s*(%|percent)\s+of\s+(\d+(?:\.\d+)?)/g, '($1/100*$3)')
+    .replace(/\bsquare root of\s+/g, 'sqrt ').replace(/\bsqrt\s+(\d+(?:\.\d+)?)/g, 'sqrt($1)')
+    .replace(/(\d+(?:\.\d+)?)\s+squared\b/g, '($1^2)').replace(/(\d+(?:\.\d+)?)\s+cubed\b/g, '($1^3)')
+    .replace(/\s*(to the power of|raised to( the power of)?|\*\*)\s*/g, '^')
+    .replace(/\s+(times|multiplied by|x)\s+/g, '*').replace(/\s+(divided by|over)\s+/g, '/')
+    .replace(/\s+plus\s+/g, '+').replace(/\s+minus\s+/g, '-').replace(/\s+mod(ulo)?\s+/g, '%');
+  return looksLikeMath(s) ? s : null;
+}

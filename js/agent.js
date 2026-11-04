@@ -4,7 +4,7 @@
 //   2. Natural-language tool use goes through a grammar-constrained JSON router.
 //   3. Every tool input is validated by code before anything runs.
 //   4. Code execution and anything sensitive needs confirmation; screen-derived requests always do.
-import { calculate, looksLikeMath } from './calc.js';
+import { calculate, looksLikeMath, mathFromWords } from './calc.js';
 import { runJS, runPython } from './sandbox.js';
 import { store } from './store.js';
 
@@ -145,7 +145,36 @@ export function parseSlash(text) {
 // ---------- Router ----------
 const TOOL_HINT = /\b(calc|calculate|compute|what is \d|how much is|\d\s*[-+*/^%]\s*\d|run|execute|python|javascript|\bjs\b|note|notes|remember this|save|delete|shortcut|uppercase|lowercase|base64|url ?encode|url ?decode|format (this )?json|minify|sort (these |the )?lines|count (the )?words|snake.?case|camel.?case|title case)\b/i;
 
-export function needsRouter(text) { return TOOL_HINT.test(text); }
+// Requests to write/explain/fix code are answers, even if they name a language.
+const ANSWER_INTENT = /^\s*(please\s+|can you\s+|could you\s+)?(write|create|generate|implement|make|build|code|explain|describe|fix|debug|refactor|review|improve|optimi[sz]e|translate|convert (this|the|my)?\s*(code|function)|what does|why|how (do|does|can|to|would))\b/i;
+const RUN_INTENT = /\b(run|execute|eval(uate)?)\b/i;
+export function needsRouter(text) { return TOOL_HINT.test(text) && !(ANSWER_INTENT.test(text) && !RUN_INTENT.test(text)); }
+
+// Deterministic text transforms: "<transform words>[ this text| the text][:] <text>"
+const TRANSFORM_RULES = [
+  [/^(make |convert (this |the )?(text )?to |change (this |the )?(text )?to )?(upper ?case|uppercase|all caps)/i, 'upper'],
+  [/^(make |convert (this |the )?(text )?to |change (this |the )?(text )?to )?(lower ?case|lowercase)/i, 'lower'],
+  [/^(make |convert (this |the )?(text )?to )?title ?case/i, 'title'],
+  [/^(convert (this |the )?(text )?to )?snake[ _-]?case/i, 'snake_case'],
+  [/^(convert (this |the )?(text )?to )?camel[ _-]?case/i, 'camel_case'],
+  [/^(convert (this |the )?(text )?to )?(snake[ _-]?case)/i, 'snake_case'],
+  [/^base ?64[ -]?encode/i, 'base64_encode'], [/^base ?64[ -]?decode/i, 'base64_decode'],
+  [/^url[ -]?encode/i, 'url_encode'], [/^url[ -]?decode/i, 'url_decode'],
+  [/^count (the )?(words|characters|chars|lines)/i, 'count'],
+  [/^sort (these |the )?lines/i, 'sort_lines'], [/^(remove duplicate lines|dedupe lines|unique lines)/i, 'unique_lines'],
+  [/^(format|pretty[ -]?print|beautify) (this |the )?json/i, 'json_format'], [/^minify (this |the )?json/i, 'json_minify'],
+  [/^reverse (this |the )?(text|string)/i, 'reverse'],
+];
+export function parseTransform(text) {
+  const t = text.trim().replace(/^please\s+/i, '');
+  for (const [re, op] of TRANSFORM_RULES) {
+    const m = re.exec(t); if (!m) continue;
+    let rest = t.slice(m[0].length).replace(/^\s*((of|in|for)\b)?\s*((this|the)\b)?\s*((text|string|json|lines|words)\b)?\s*:?\s*/i, '');
+    rest = rest.replace(/^["“'](.*)["”']$/s, '$1');
+    if (rest) return { tool: 'transform_text', op, input: rest };
+  }
+  return null;
+}
 
 const ROUTER_SCHEMA = {
   type: 'object',
@@ -189,7 +218,7 @@ export async function route(llm, text) {
 export function buildMessages({ text, history, settings, screen }) {
   const budgetChars = Math.max(1500, settings.contextWindow * 3 - 1200); // rough chars≈tokens*3, leave room for output
   let sys = `You are Pocket Agent, a concise, private coding assistant running fully offline on the user's iPad.
-Be direct. Prefer short answers with code in fenced blocks labelled with the language.
+Be direct and brief. Always put code in fenced Markdown blocks labelled with the language (python, javascript, …).
 You cannot browse the web, see the screen directly, or control other apps. Never claim to have done something you didn't.`;
   if (settings.preferences?.trim()) sys += `\nUser preferences (saved by the user):\n${settings.preferences.trim().slice(0, 600)}`;
   if (screen) {
@@ -204,7 +233,9 @@ ${screen}
   let used = sys.length + text.length;
   const past = [];
   for (let i = history.length - 1; i >= 0; i--) {
-    const h = history[i]; const c = h.content.slice(0, 1500);
+    const h = history[i];
+    if (h.tool) continue;               // tool results are shown to the user, not fed back as examples
+    const c = h.content.slice(0, 1500);
     if (used + c.length > budgetChars) break;
     used += c.length; past.unshift({ role: h.role, content: c });
   }
@@ -219,9 +250,8 @@ export async function handle({ text, llm, settings, history, screen, ui }) {
   // 1. Deterministic paths first.
   let call = parseSlash(text);
   if (call?.meta) return { kind: 'meta', meta: call.meta, input: call.input };
-  if (!call && looksLikeMath(text.replace(/^(what is|calc|compute)\s*/i, '').replace(/[?=]\s*$/, ''))) {
-    call = { tool: 'calculate', input: text.replace(/^(what is|calc|compute)\s*/i, '').replace(/[?=]\s*$/, '') };
-  }
+  if (!call) { const expr = mathFromWords(text); if (expr) call = { tool: 'calculate', input: expr }; }
+  if (!call && !screen) call = parseTransform(text);
 
   // 2. Model routing only when the request mentions a tool-like action.
   let routerStats = null;
@@ -234,7 +264,13 @@ export async function handle({ text, llm, settings, history, screen, ui }) {
     } catch (e) { /* fall back to plain answer */ }
   }
 
-  if (call) return runTool(call, { settings, screen, ui, routerStats });
+  if (call) {
+    const res = await runTool(call, { settings, screen, ui, routerStats });
+    // The small model sometimes picks a tool that can't do the job (e.g. the calculator for
+    // "write a function of n"). If its choice is rejected by validation or the calculator, answer normally.
+    const unusable = call.fromModel && (res.invalid || (call.tool === 'calculate' && !res.ok && !res.declined));
+    if (!unusable) return res;
+  }
 
   // 3. Plain answer.
   if (!llm.ready && !llm.recoverable) return { kind: 'error', text: 'No model loaded. Open Settings (⚙︎) and load a model, or use a /command.' };
@@ -251,7 +287,7 @@ export async function runTool(call, { settings, screen, ui }) {
   if (perm === 'off') { store.addLog({ tool: call.tool, outcome: 'blocked' }); return { kind: 'error', text: `The ${call.tool} tool is turned off in Settings → Tools.` }; }
 
   const v = tool.validate({ input: call.input, op: call.op });
-  if (!v.ok) { store.addLog({ tool: call.tool, outcome: 'invalid' }); return { kind: 'error', text: `Didn't run ${call.tool}: ${v.error}.` }; }
+  if (!v.ok) { store.addLog({ tool: call.tool, outcome: 'invalid' }); return { kind: 'error', invalid: true, text: `Didn't run ${call.tool}: ${v.error}.` }; }
 
   // Confirmation rules (deterministic): tool setting, destructive/sensitive tools, or any
   // model-chosen action while screen text is in context (prompt-injection guard).
@@ -259,7 +295,7 @@ export async function runTool(call, { settings, screen, ui }) {
   if (mustAsk) {
     const shown = typeof v.value === 'string' ? v.value : JSON.stringify(v.value, null, 2);
     const ok = await ui.confirm({ tool: call.tool, input: shown, code: tool.code, fromModel: !!call.fromModel });
-    if (!ok) { store.addLog({ tool: call.tool, outcome: 'declined' }); return { kind: 'tool', tool: call.tool, ok: false, text: 'Cancelled — nothing was run.' }; }
+    if (!ok) { store.addLog({ tool: call.tool, outcome: 'declined' }); return { kind: 'tool', tool: call.tool, ok: false, declined: true, text: 'Cancelled — nothing was run.' }; }
   }
 
   ui.status(`Running ${call.tool}…`);

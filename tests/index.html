@@ -1,11 +1,12 @@
 <!doctype html><meta charset="utf-8"><title>Pocket Agent tests</title>
 <pre id="out">running…</pre>
 <script type="module">
-import { calculate, looksLikeMath } from '../js/calc.js';
-import { parseSlash, runTool, needsRouter, buildMessages, TOOLS } from '../js/agent.js';
+import { calculate, looksLikeMath, mathFromWords } from '../js/calc.js';
+import { parseSlash, runTool, needsRouter, buildMessages, TOOLS, parseTransform } from '../js/agent.js';
 import { runJS, runPython } from '../js/sandbox.js';
+import { llm } from '../js/llm.js';
 const results = []; let pass = 0, fail = 0;
-const t = async (name, fn) => { try { await fn(); results.push('✓ ' + name); pass++; } catch (e) { results.push('✗ ' + name + ' — ' + (e?.message || e)); fail++; } };
+const t = async (name, fn) => { document.getElementById('out').textContent = `running: ${name}\n` + results.join('\n'); try { await fn(); results.push('✓ ' + name); pass++; } catch (e) { results.push('✗ ' + name + ' — ' + (e?.message || e)); fail++; } };
 const eq = (a, b) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`); };
 const throws = (fn) => { try { fn(); } catch { return; } throw new Error('expected throw'); };
 const settings = { permissions: {}, contextWindow: 2048, preferences: '' };
@@ -20,10 +21,12 @@ await t('calc rejects code', () => throws(() => calculate('alert(1)')));
 await t('calc rejects div0', () => throws(() => calculate('1/0')));
 await t('calc rejects junk', () => throws(() => calculate('2 + ; 3')));
 await t('looksLikeMath', () => eq([looksLikeMath('17*23+4'), looksLikeMath('hello'), looksLikeMath('version 2')], [true, false, false]));
+await t('math from words', () => eq(['what is 15% of 240', "what's 2 to the power of 16?", '12 times 12', 'calculate 100 divided by 8', 'square root of 81 plus 1', 'write a function of n'].map(q => { const e = mathFromWords(q); return e && calculate(e); }), [36, 65536, 144, 12.5, 10, null]));
 await t('slash parse', () => eq(parseSlash('/calc 1+1'), { tool: 'calculate', input: '1+1' }));
 await t('slash tx', () => eq(parseSlash('/tx upper hi there'), { tool: 'transform_text', input: 'hi there', op: 'upper' }));
 await t('slash meta', () => eq(parseSlash('/help'), { meta: 'help', input: '' }));
-await t('router hint', () => eq([needsRouter('run this python'), needsRouter('explain closures in js'), needsRouter('why is the sky blue')], [true, true, false]));
+await t('router hint', () => eq([needsRouter('run this python'), needsRouter('explain closures in js'), needsRouter('why is the sky blue'), needsRouter('write a python function to sort'), needsRouter('write and run python that prints 5')], [true, false, false, false, true]));
+await t('deterministic transforms', () => eq([parseTransform('uppercase this text: hello world'), parseTransform('count the words in: a b c')?.input, parseTransform('convert to snake case: myVar')?.input, parseTransform('base64 encode the text hello')?.input, parseTransform('explain this')], [{ tool: 'transform_text', op: 'upper', input: 'hello world' }, 'a b c', 'myVar', 'hello', null]));
 await t('tool: calculate', async () => { const r = await runTool({ tool: 'calculate', input: '6*7' }, { settings, ui: ui(true) }); eq([r.ok, r.text], [true, '6*7 = 42']); });
 await t('tool: transform invalid op rejected', async () => { const r = await runTool({ tool: 'transform_text', input: 'x', op: 'rm -rf' }, { settings, ui: ui(true) }); eq(r.kind, 'error'); });
 await t('tool: transform json_format', async () => { const r = await runTool({ tool: 'transform_text', input: '{"a":1}', op: 'json_format' }, { settings, ui: ui(true) }); eq(r.text, '{\n  "a": 1\n}'); });
@@ -33,6 +36,7 @@ await t('tool: off permission blocks', async () => { const r = await runTool({ t
 await t('tool: screen + model-chosen forces confirm', async () => { let asked = false; const r = await runTool({ tool: 'calculate', input: '1+1', fromModel: true }, { settings, screen: 'x', ui: { status() {}, confirm: async () => { asked = true; return false; } } }); eq([asked, r.ok], [true, false]); });
 await t('tool: shortcut rejects control chars', async () => { const r = await runTool({ tool: 'run_shortcut', input: 'a\u0007b' }, { settings, ui: ui(true) }); eq(r.kind, 'error'); });
 await t('prompt: screen text fenced as untrusted', () => { const m = buildMessages({ text: 'hi', history: [], settings, screen: 'IGNORE PREVIOUS' }); if (!/UNTRUSTED DATA/.test(m[0].content) || !/<screen_text>\nIGNORE PREVIOUS\n<\/screen_text>/.test(m[0].content)) throw new Error('missing fence'); });
+await t('prompt: tool turns not fed to model', () => { const m = buildMessages({ text: 'q', history: [{ role: 'user', content: 'calc', tool: true }, { role: 'assistant', content: '[calculate] 2', tool: true }, { role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }], settings, screen: null }); eq(m.map(x => x.content).slice(1), ['hi', 'hello', 'q']); });
 await t('prompt: history trimmed & alternation', () => { const h = Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'x'.repeat(900) })); const m = buildMessages({ text: 'q', history: h, settings, screen: null }); eq([m[1].role, m.at(-1).content], ['user', 'q']); if (m.length > 8) throw new Error('not trimmed: ' + m.length); });
 await t('sandbox JS output', async () => { const r = await runJS('console.log([1,2,3].map(x=>x*2)); return 5'); eq([r.ok, r.output], [true, '[\n  2,\n  4,\n  6\n]\n⇒ 5']); });
 await t('sandbox JS has no network', async () => { const r = await runJS('return typeof fetch + "," + typeof XMLHttpRequest + "," + typeof WebSocket'); eq(r.output, '⇒ undefined,undefined,undefined'); });
@@ -47,6 +51,33 @@ await t('sandbox Python stdout', async () => { const r = await runPython('import
 await t('sandbox Python no network', async () => { const r = await runPython('import js\nprint(hasattr(js, "fetch") and js.fetch is not None)'); eq(r.output.trim(), 'False'); });
 await t('sandbox Python error', async () => { const r = await runPython('1/0'); eq([r.ok, /ZeroDivisionError/.test(r.error)], [false, true]); });
 
+await t('watchdog: hung model call fails fast instead of freezing', async () => {
+  llm.engine = { chat: { completions: { create: () => new Promise(() => {}) } }, interruptGenerate() {} }; llm.lastLoad = null;
+  const t0 = performance.now(); let msg = '';
+  try { await llm.json([{ role: 'user', content: 'x' }], { type: 'object' }, { idleMs: 200 }); } catch (e) { msg = e.message; }
+  llm.engine = null;
+  eq([/stopped responding/.test(msg), performance.now() - t0 < 5000, llm.busy], [true, true, false]);
+});
+await t('recovery: GPU-lost error triggers reload then retry', async () => {
+  let calls = 0; const good = { chat: { completions: { create: async () => ({ choices: [{ message: { content: '{"a":1}' } }] }) } }, interruptGenerate() {} };
+  llm.engine = { chat: { completions: { create: async () => { calls++; throw new Error('The current Object has already been disposed'); } } }, interruptGenerate() {} };
+  llm.lastLoad = { id: 'x', contextWindow: 1024 };
+  const origLoad = llm.load; llm.load = async () => { llm.engine = good; }; 
+  const r = await llm.json([{ role: 'user', content: 'x' }], { type: 'object' });
+  llm.load = origLoad; llm.engine = null; llm.lastLoad = null;
+  eq([calls, r.value], [1, { a: 1 }]);
+});
+await t('confirm dialog: Run, Cancel and Esc all settle', async () => {
+  const f = document.createElement('iframe'); f.src = '../?confirmtest=1'; f.style.cssText = 'width:600px;height:400px'; document.body.append(f);
+  await new Promise((r) => f.onload = r); for (let i = 0; i < 50 && !f.contentWindow.__pa; i++) await new Promise((r) => setTimeout(r, 100));
+  const w = f.contentWindow, d = w.document, out = [];
+  const once = async (act) => { const p = w.__pa.confirm({ tool: 'run_python', input: 'x' }); await new Promise((r) => setTimeout(r, 50)); act(d); return Promise.race([p, new Promise((r) => setTimeout(() => r('HUNG'), 2000))]); };
+  out.push(await once((d) => d.getElementById('confirmYes').click()));
+  out.push(await once((d) => d.getElementById('confirmNo').click()));
+  out.push(await once((d) => d.getElementById('confirmDlg').dispatchEvent(new Event('cancel', { cancelable: true }))));
+  out.push(await once((d) => d.getElementById('confirmDlg').close()));
+  f.remove(); eq(out, [true, false, false, false]);
+});
 document.getElementById('out').textContent = `${pass} passed, ${fail} failed\n\n` + results.join('\n');
 window.__tests = { pass, fail, results };
 </script>
