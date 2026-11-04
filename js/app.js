@@ -309,7 +309,8 @@ async function initModelUI() {
   }
   sel.value = settings.modelId || sel.options[0]?.value || '';
   $('loadModelBtn').disabled = !gpu.ok;
-  if (gpu.ok && settings.autoLoad && settings.modelId && await isCached(settings.modelId)) loadModel(settings.modelId);
+  // Always load a downloaded model on open — no setting needed.
+  if (gpu.ok && settings.modelId && await isCached(settings.modelId)) loadModel(settings.modelId);
 }
 
 // Native iPad app: the 1.5B model runs in llama.cpp (Metal) and loads automatically.
@@ -409,7 +410,6 @@ async function benchmark() {
 // ---------------- Settings dialog ----------------
 function openSettings() {
   $('ctxSelect').value = String(settings.contextWindow);
-  $('autoLoad').checked = !!settings.autoLoad;
   $('autoClear').checked = settings.autoClearScreen;
   $('saveScreen').checked = settings.saveScreenTurns;
   $('autoTools').checked = settings.autoTools;
@@ -438,7 +438,6 @@ function openSettings() {
 }
 function saveSettingsFromUI() {
   settings.contextWindow = +$('ctxSelect').value;
-  settings.autoLoad = $('autoLoad').checked;
   settings.autoClearScreen = $('autoClear').checked;
   settings.saveScreenTurns = $('saveScreen').checked;
   settings.autoTools = $('autoTools').checked;
