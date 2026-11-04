@@ -21,7 +21,8 @@ export const DEFAULT_SETTINGS = {
   saveScreenTurns: false,    // never persist turns that used screen context unless opted in
   autoTools: true,           // allow the model to pick tools
   preferences: '',           // explicitly saved user preferences, added to the system prompt
-  permissions: {},           // toolName -> 'allow' | 'ask' | 'off'
+  permissions: {},           // toolName -> 'allow' | 'ask' | 'off' (overrides freedom)
+  freedom: 'balanced',       // careful | balanced | free
 };
 
 export const store = {
@@ -33,6 +34,9 @@ export const store = {
 
   notes() { return read('notes', []); },
   saveNotes(n) { return write('notes', n); },
+
+  files() { return read('files', []); },
+  saveFiles(f) { return write('files', f); },
 
   macros() { return read('macros', []); },
   saveMacros(m) { return write('macros', m); },

@@ -20,6 +20,7 @@
 <div id="app">
   <header class="bar">
     <div class="brand"><span class="dot" id="modelDot"></span><span id="modelLabel">No model</span></div>
+    <button id="filePill" class="pill file" hidden title="Attached file — tap to remove">📄 <span id="fileName"></span> ✕</button>
     <button id="screenPill" class="pill screen" hidden title="Screen context is ON — tap or ⌘⇧X to clear">● Screen <span id="screenCount"></span> ✕</button>
     <div class="spacer"></div>
     <span class="pill offline" id="netPill" hidden>offline</span>
@@ -32,8 +33,8 @@
   <div id="status" class="status" hidden></div>
 
   <form id="composer" autocomplete="off">
-    <button type="button" class="icon" id="attachBtn" title="Add screenshot (or paste with ⌘V)" aria-label="Add screenshot">⧉</button>
-    <input type="file" id="fileInput" accept="image/*" hidden>
+    <button type="button" class="icon" id="attachBtn" title="Attach a screenshot, code or text file (or paste with ⌘V)" aria-label="Attach file">⧉</button>
+    <input type="file" id="fileInput" hidden>
     <textarea id="input" rows="1" placeholder="Ask, or /help" enterkeyhint="send" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
     <button type="submit" class="send" id="sendBtn" aria-label="Send">↑</button>
   </form>
@@ -88,6 +89,9 @@
     </section>
 
     <section>
+      <h3>Freedom</h3>
+      <select id="freedomSelect"></select>
+      <p class="muted small">Code always runs in a sandbox with no internet or file access. Deleting always asks. Emails and messages always open for you to send.</p>
       <h3>Tools</h3>
       <label class="row">Let the model pick tools <input type="checkbox" id="autoTools"></label>
       <div id="toolPerms"></div>

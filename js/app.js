@@ -1,5 +1,5 @@
 import { llm, CANDIDATES, probeGPU, modelIdFor, modelRecord, isCached, deleteCached, diagnoseNetwork, isMirrored } from './llm.js';
-import { handle, runTool, TOOLS, permissionFor, route, ROUTER_TESTS } from './agent.js';
+import { handle, runTool, TOOLS, permissionFor, route, ROUTER_TESTS, FREEDOM } from './agent.js';
 import { analyzeImage, toContext, warmOCR } from './ocr.js';
 import { warmPython } from './sandbox.js';
 import { store } from './store.js';
@@ -10,6 +10,7 @@ const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls)
 let settings = store.settings();
 let history = store.history();          // [{role, content}] — never contains screen text
 let screen = null;                      // { text, lines, ms } — memory only
+let attachment = null;                  // { name, text } — memory only
 let busy = false;
 
 // ---------------- Rendering ----------------
@@ -123,7 +124,7 @@ async function send(text) {
   let live = null;
   try {
     const res = await handle({
-      text, llm, settings, history, screen: screen?.text, ui: {
+      text, llm, settings, history, screen: screen?.text, attachment, ui: {
         status,
         token: (t) => { if (!live) live = addMsg('assistant', ''); renderMarkdown(live, t); live.scrollIntoView({ block: 'end' }); },
         confirm: confirmAction,
@@ -135,7 +136,7 @@ async function send(text) {
       const st = fmtStats(res.stats); if (st) live.append(el('div', 'meta', st + (usedScreen ? ' · used screen text' : '')));
       remember(text, res.text, usedScreen);
     } else if (res.kind === 'tool') {
-      addMsg(`tool${res.ok ? '' : ' fail'}`, res.text, `${res.tool} · ${res.ok ? 'done' : 'not completed'}`);
+      showToolResult(res);
       remember(text, res.text, usedScreen, true);
     } else {
       addMsg('err', res.text);
@@ -156,13 +157,40 @@ function remember(user, assistant, usedScreen, tool = false) {
   store.saveHistory(history);
 }
 
+// Tool results can carry buttons: copy text, or export a file to the Files app (needs a tap on iPadOS).
+function showToolResult(res) {
+  const m = res.markdown ? addMsg('assistant', res.markdown) : addMsg(`tool${res.ok ? '' : ' fail'}`, res.text);
+  if (res.markdown) m.classList.add('tool');
+  if (res.actions?.length) {
+    const bar = el('div', 'row wrap');
+    for (const a of res.actions) {
+      const b = el('button', 'btn', a.label);
+      b.onclick = async () => {
+        try {
+          if (a.copy != null) { await navigator.clipboard.writeText(a.copy); b.textContent = 'Copied ✓'; }
+          if (a.file) await exportFile(a.file.name, a.file.content);
+        } catch (e) { if (e?.name !== 'AbortError') b.textContent = 'Failed: ' + (e?.message || e); }
+      };
+      bar.append(b);
+    }
+    m.append(bar);
+  }
+  m.append(el('div', 'meta', `${res.tool} · ${res.ok ? 'done' : 'not completed'}`));
+}
+async function exportFile(name, content) {
+  const file = new File([content], name, { type: 'text/plain' });
+  if (navigator.canShare?.({ files: [file] })) return navigator.share({ files: [file] }); // Share sheet → Save to Files
+  const a = el('a'); a.href = URL.createObjectURL(file); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
 async function runDirect(call, { preconfirmed } = {}) {
   if (busy) return;
   setBusy(true);
   try {
     const s = preconfirmed ? { ...settings, permissions: { ...settings.permissions, [call.tool]: permissionFor(call.tool, settings) === 'off' ? 'off' : 'allow' } } : settings;
     const res = await runTool(call, { settings: s, screen: null, ui: { status, confirm: confirmAction } });
-    addMsg(res.kind === 'error' ? 'err' : `tool${res.ok ? '' : ' fail'}`, res.text, res.tool ? `${res.tool} · ${res.ok ? 'done' : 'not completed'}` : '');
+    if (res.kind === 'error') addMsg('err', res.text); else showToolResult(res);
   } finally { setBusy(false); status(''); }
 }
 
@@ -197,6 +225,23 @@ async function meta(cmd, input) {
 }
 
 function newChat() { history = []; store.saveHistory([]); renderHistory(); llm.engine?.resetChat?.().catch(() => {}); $('input').focus(); }
+
+// ---------------- Attached files (memory only) ----------------
+const TEXT_EXT = /\.(txt|md|py|js|mjs|ts|tsx|jsx|json|csv|html?|css|swift|kt|java|c|cc|cpp|h|hpp|rs|go|rb|php|sh|sql|ya?ml|toml|xml|ini|log)$/i;
+async function ingestFile(file) {
+  if (!file) return;
+  if (file.type.startsWith('image/')) return ingestImage(file);
+  if (!(file.type.startsWith('text/') || TEXT_EXT.test(file.name) || file.type === 'application/json')) {
+    addMsg('err', `I can read text and code files (and screenshots). “${file.name}” isn't one of those.`); return;
+  }
+  if (file.size > 300 * 1024) { addMsg('err', `“${file.name}” is too large (${Math.round(file.size / 1024)} KB). The limit is 300 KB.`); return; }
+  attachment = { name: file.name, text: await file.text() };
+  $('filePill').hidden = false; $('fileName').textContent = file.name;
+  const lines = attachment.text.split('\n').length;
+  addMsg('tool', `Attached ${file.name} (${lines} lines). Ask about it${/\.(py|m?js)$/i.test(file.name) ? ', say “run it”' : ''}, or “save that as ${file.name}” to keep it in your workspace. It stays in memory only.`, 'file attached');
+  $('input').focus();
+}
+function clearAttachment() { attachment = null; $('filePill').hidden = true; }
 
 // ---------------- Screen context ----------------
 async function ingestImage(blob) {
@@ -342,6 +387,8 @@ function openSettings() {
   $('autoClear').checked = settings.autoClearScreen;
   $('saveScreen').checked = settings.saveScreenTurns;
   $('autoTools').checked = settings.autoTools;
+  const fr = $('freedomSelect'); fr.replaceChildren(...Object.entries(FREEDOM).map(([k, d]) => { const o = el('option', null, d); o.value = k; return o; }));
+  fr.value = settings.freedom || 'balanced';
   $('prefs').value = settings.preferences;
   const tp = $('toolPerms'); tp.replaceChildren();
   for (const [name, t] of Object.entries(TOOLS)) {
@@ -349,9 +396,9 @@ function openSettings() {
     row.append(el('b', null, name));
     const s = el('select'); for (const v of ['allow', 'ask', 'off']) { const o = el('option', null, v); o.value = v; s.append(o); }
     s.value = permissionFor(name, settings);
-    if (t.destructive || t.sensitive) { s.querySelector('[value=allow]').disabled = true; }
+    if (t.risk === 'destructive') { s.querySelector('[value=allow]').disabled = true; }
     s.onchange = () => { settings.permissions = { ...settings.permissions, [name]: s.value }; store.saveSettings(settings); };
-    row.append(s, el('div', 'd', t.desc + (t.destructive || t.sensitive ? ' Always asks first.' : '')));
+    row.append(s, el('div', 'd', t.desc + (t.risk === 'destructive' ? ' Always asks first.' : '')));
     tp.append(row);
   }
   renderMacros(); renderNotes();
@@ -366,6 +413,7 @@ function saveSettingsFromUI() {
   settings.autoClearScreen = $('autoClear').checked;
   settings.saveScreenTurns = $('saveScreen').checked;
   settings.autoTools = $('autoTools').checked;
+  if (settings.freedom !== $('freedomSelect').value) { settings.freedom = $('freedomSelect').value; settings.permissions = {}; } // a new level resets per-tool overrides
   settings.preferences = $('prefs').value.slice(0, 600);
   store.saveSettings(settings);
 }
@@ -401,13 +449,14 @@ function bind() {
   });
   $('composer').addEventListener('submit', (e) => { e.preventDefault(); busy ? stop() : send(input.value); });
   $('attachBtn').onclick = () => $('fileInput').click();
-  $('fileInput').onchange = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) ingestImage(f); };
+  $('fileInput').onchange = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) ingestFile(f); };
+  $('filePill').onclick = () => { clearAttachment(); addMsg('tool', 'File removed from context.', 'file detached'); };
   document.addEventListener('paste', (e) => {
     const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
     if (item) { e.preventDefault(); ingestImage(item.getAsFile()); }
   });
   document.addEventListener('dragover', (e) => e.preventDefault());
-  document.addEventListener('drop', (e) => { e.preventDefault(); const f = [...(e.dataTransfer?.files || [])].find(f => f.type.startsWith('image/')); if (f) ingestImage(f); });
+  document.addEventListener('drop', (e) => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f) ingestFile(f); });
   $('screenPill').onclick = () => clearScreen('Screen context cleared.');
   $('newChatBtn').onclick = newChat;
   $('settingsBtn').onclick = openSettings;
@@ -491,4 +540,4 @@ async function boot() {
 boot();
 
 // Exposed for in-browser tests only.
-window.__pa = { send, ingestImage, clearScreen, confirm: confirmAction, get screen() { return screen; }, warmPython };
+window.__pa = { send, ingestImage, ingestFile, clearScreen, get attachment() { return attachment; }, confirm: confirmAction, get screen() { return screen; }, warmPython };

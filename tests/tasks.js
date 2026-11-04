@@ -52,6 +52,11 @@ export const TASKS = [
   ['open notes', () => opened.at(-1) === 'mobilenotes://' || `opened ${opened.at(-1)}`],
   ['search the web for webgpu ipad', () => /google\.com\/search\?q=webgpu%20ipad/.test(opened.at(-1) || '') || `opened ${opened.at(-1)}`],
   ['run this python: import webbrowser; webbrowser.open("https://example.com")', has("can't open")],
+  ['write a python program that prints the squares of 1 to 10 and run it', has('100', 'Ran successfully')],
+  ['save that as squares.py', has('Saved squares.py')],
+  ['run squares.py', has('100')],
+  ['email test@example.com about the meeting tomorrow', () => (/^mailto:test@example\.com\?subject=the%20meeting%20tomorrow&body=.{20,}/.test(opened.at(-1) || '') || `opened ${(opened.at(-1) || '').slice(0, 80)}`)],
+  ['directions to the eiffel tower', () => opened.at(-1) === 'maps://?daddr=the%20eiffel%20tower' || `opened ${opened.at(-1)}`],
 ];
 
 function errorScreenshot() {

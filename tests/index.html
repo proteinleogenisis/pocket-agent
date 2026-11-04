@@ -5,6 +5,8 @@ import { calculate, looksLikeMath, mathFromWords } from '../js/calc.js';
 import { parseSlash, runTool, needsRouter, buildMessages, TOOLS, parseTransform, resolveOpenTarget } from '../js/agent.js';
 import { runJS, runPython } from '../js/sandbox.js';
 import { llm } from '../js/llm.js';
+import { parseAction, parseBuild, buildAndRun, files } from '../js/actions.js';
+import { permissionFor } from '../js/agent.js';
 const results = []; let pass = 0, fail = 0;
 const t = async (name, fn) => { document.getElementById('out').textContent = `running: ${name}\n` + results.join('\n'); try { await fn(); results.push('✓ ' + name); pass++; } catch (e) { results.push('✗ ' + name + ' — ' + (e?.message || e)); fail++; } };
 const eq = (a, b) => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`); };
@@ -25,8 +27,8 @@ await t('math from words', () => eq(['what is 15% of 240', "what's 2 to the powe
 await t('open targets', () => eq([resolveOpenTarget('Safari')?.url, resolveOpenTarget('the notes app')?.url, resolveOpenTarget('example.com/docs')?.url, resolveOpenTarget('my bank password')], ['x-safari-https://www.google.com', 'mobilenotes://', 'x-safari-https://example.com/docs', null]));
 await t('run-code phrasing is deterministic', async () => { const seen = []; const ui = { status() {}, token() {}, confirm: async (c) => { seen.push(c.tool + '|' + c.input); return false; } };
   const { handle } = await import('../js/agent.js'); const fake = { ready: false, recoverable: false };
-  await handle({ text: 'run this python: print(1)', llm: fake, settings: { permissions: {}, autoTools: true, contextWindow: 2048 }, history: [], screen: null, ui });
-  await handle({ text: 'execute javascript: console.log(2)', llm: fake, settings: { permissions: {}, autoTools: true, contextWindow: 2048 }, history: [], screen: null, ui });
+  await handle({ text: 'run this python: print(1)', llm: fake, settings: { permissions: {}, freedom: 'careful', autoTools: true, contextWindow: 2048 }, history: [], screen: null, ui });
+  await handle({ text: 'execute javascript: console.log(2)', llm: fake, settings: { permissions: {}, freedom: 'careful', autoTools: true, contextWindow: 2048 }, history: [], screen: null, ui });
   eq(seen, ['run_python|print(1)', 'run_javascript|console.log(2)']); });
 await t('notes phrasing is deterministic', async () => { const seen = []; const ui = { status() {}, token() {}, confirm: async () => false };
   const { handle, TOOLS } = await import('../js/agent.js'); const orig = { s: TOOLS.save_note.run, f: TOOLS.search_notes.run };
@@ -44,7 +46,7 @@ await t('tool: calculate', async () => { const r = await runTool({ tool: 'calcul
 await t('tool: transform invalid op rejected', async () => { const r = await runTool({ tool: 'transform_text', input: 'x', op: 'rm -rf' }, { settings, ui: ui(true) }); eq(r.kind, 'error'); });
 await t('tool: transform json_format', async () => { const r = await runTool({ tool: 'transform_text', input: '{"a":1}', op: 'json_format' }, { settings, ui: ui(true) }); eq(r.text, '{\n  "a": 1\n}'); });
 await t('tool: base64 roundtrip unicode', async () => { const e = await runTool({ tool: 'transform_text', input: 'héllo ✓', op: 'base64_encode' }, { settings, ui: ui(true) }); const d = await runTool({ tool: 'transform_text', input: e.text, op: 'base64_decode' }, { settings, ui: ui(true) }); eq(d.text, 'héllo ✓'); });
-await t('tool: declined confirm runs nothing', async () => { let ran = false; const orig = TOOLS.run_javascript.run; TOOLS.run_javascript.run = async () => { ran = true; return { ok: true, output: '' }; }; const r = await runTool({ tool: 'run_javascript', input: '1' }, { settings, ui: ui(false) }); TOOLS.run_javascript.run = orig; eq([r.ok, ran], [false, false]); });
+await t('tool: declined confirm runs nothing', async () => { let ran = false; const orig = TOOLS.run_javascript.run; TOOLS.run_javascript.run = async () => { ran = true; return { ok: true, output: '' }; }; const r = await runTool({ tool: 'run_javascript', input: '1' }, { settings: { ...settings, freedom: 'careful' }, ui: ui(false) }); TOOLS.run_javascript.run = orig; eq([r.ok, ran], [false, false]); });
 await t('tool: off permission blocks', async () => { const r = await runTool({ tool: 'calculate', input: '1+1' }, { settings: { permissions: { calculate: 'off' } }, ui: ui(true) }); eq(r.kind, 'error'); });
 await t('tool: screen + model-chosen forces confirm', async () => { let asked = false; const r = await runTool({ tool: 'calculate', input: '1+1', fromModel: true }, { settings, screen: 'x', ui: { status() {}, confirm: async () => { asked = true; return false; } } }); eq([asked, r.ok], [true, false]); });
 await t('tool: shortcut rejects control chars', async () => { const r = await runTool({ tool: 'run_shortcut', input: 'a\u0007b' }, { settings, ui: ui(true) }); eq(r.kind, 'error'); });
@@ -98,6 +100,50 @@ await t('recovery: transient GPU error retried without reload', async () => {
   llm.load = origLoad; llm.engine = null; llm.lastLoad = null;
   eq([calls, reloads, r.value], [2, 0, { a: 2 }]);
 });
+await t('freedom levels', () => {
+  const P = (tool, freedom, fromModel = false, permissions = {}) => permissionFor(tool, { freedom, permissions }, { fromModel });
+  eq([P('run_python', 'careful'), P('run_python', 'balanced'), P('run_python', 'balanced', true), P('run_python', 'free', true),
+      P('run_shortcut', 'balanced'), P('run_shortcut', 'free'), P('delete_note', 'free'), P('delete_note', 'free', false, { delete_note: 'allow' }),
+      P('calculate', 'careful'), P('run_python', 'free', false, { run_python: 'off' })],
+     ['ask', 'allow', 'ask', 'allow', 'ask', 'allow', 'ask', 'ask', 'allow', 'off']);
+});
+await t('action phrases', () => {
+  const h = [{ role: 'user', content: 'x' }, { role: 'assistant', content: 'Here:\n```python\nprint(1)\n```' }];
+  const P = (q) => { const a = parseAction(q, { history: h }); return a && (a.error ? 'ERR' : a.tool + ' ' + JSON.stringify(a.value ?? a.input)); };
+  eq([P('email bob@example.com about lunch: see you at noon'), P('write an email to a@b.co about the trip'), P('text 555-123-4567 saying running late'),
+      P('send a message saying on my way'), P('directions to the library'), P('find coffee shops on the map'), P('run shortcut Add Reminder with buy milk'),
+      P('remind me to call mom'), P('copy the last code'), P('save that as hello'), P('show my files'), P('what is a closure')],
+     ['compose_email {"to":"bob@example.com","subject":"lunch","body":"see you at noon"}', 'compose_email {"to":"a@b.co","subject":"the trip","body":""}',
+      'compose_message {"to":"555-123-4567","body":"running late"}', 'compose_message {"to":"","body":"on my way"}', 'maps {"place":"the library","mode":"directions"}',
+      'maps {"place":"coffee shops","mode":"search"}', 'run_shortcut_input {"name":"Add Reminder","text":"buy milk"}', 'run_shortcut_input {"name":"Pocket Reminder","text":"call mom"}',
+      'copy_text {"text":"print(1)"}', 'save_file {"name":"hello.py","content":"print(1)"}', 'workspace {"op":"list"}', null]);
+});
+await t('compose actions open the right URLs', async () => {
+  const opened = []; window.__openURL = (u) => opened.push(u); const st = { permissions: {}, freedom: 'balanced' };
+  await runTool({ tool: 'compose_email', value: { to: 'a@b.co', subject: 'Hi there', body: 'x & y' } }, { settings: st, ui: ui(true) });
+  await runTool({ tool: 'compose_message', value: { to: '555 1234', body: 'on my way' } }, { settings: st, ui: ui(true) });
+  await runTool({ tool: 'maps', value: { place: 'Eiffel Tower', mode: 'directions' } }, { settings: st, ui: ui(true) });
+  const bad = await runTool({ tool: 'compose_email', value: { to: 'not-an-email', subject: 's' } }, { settings: st, ui: ui(true) });
+  delete window.__openURL;
+  eq([opened, bad.kind], [['mailto:a@b.co?subject=Hi%20there&body=x%20%26%20y', 'sms:5551234&body=on%20my%20way', 'maps://?daddr=Eiffel%20Tower'], 'error']);
+});
+await t('workspace: save, list, show, run, delete', async () => {
+  const st = { permissions: {}, freedom: 'balanced' }; files.remove('t_test.py');
+  const s1 = await runTool({ tool: 'save_file', value: { name: 't_test.py', content: 'print(6*7)' } }, { settings: st, ui: ui(true) });
+  const l = await runTool({ tool: 'workspace', value: { op: 'list' } }, { settings: st, ui: ui(true) });
+  const a = parseAction('run t_test.py'); const r = await runTool(a, { settings: st, ui: ui(true) });
+  const bad = await runTool({ tool: 'save_file', value: { name: '../evil', content: 'x' } }, { settings: st, ui: ui(true) });
+  const d = await runTool({ tool: 'delete_file', input: 't_test.py' }, { settings: st, ui: ui(true) });
+  eq([s1.ok, s1.actions?.[0]?.file?.name, /t_test\.py/.test(l.text), r.text.trim(), bad.kind, d.ok, !!files.get('t_test.py')], [true, 't_test.py', true, '42', 'error', true, false]);
+});
+await t('build loop fixes its own error', async () => {
+  const replies = ['```python\nprint(undefined_name)\n```', '```python\nprint(sum(range(5)))\n```']; const prompts = [];
+  const fake = { stream: async (m) => { prompts.push(m.at(-1).content); return { text: replies.shift() }; } };
+  const runCode = async (lang, code) => { const r = await runPython(code); return { ok: r.ok, text: r.ok ? r.output : r.output + '\n' + r.error }; };
+  const res = await buildAndRun({ task: 'sum 0..4 and run it', lang: 'python', llm: fake, ui: { status() {} }, runCode });
+  eq([res.ok, res.attempts, /NameError/.test(prompts[1]), /✓ Ran successfully after fixing 1 error/.test(res.text), /\b10\b/.test(res.text)], [true, 2, true, true, true]);
+});
+await t('build phrasing detected', () => eq([parseBuild('write a python program that prints primes and run it')?.lang, parseBuild('make a js script that reverses a string then test it')?.lang, parseBuild('write a function that reverses a string')], ['python', 'javascript', null]));
 document.getElementById('out').textContent = `${pass} passed, ${fail} failed\n\n` + results.join('\n');
 window.__tests = { pass, fail, results };
 </script>
