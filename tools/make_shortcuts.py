@@ -24,7 +24,7 @@ def act(ident, **params):
 
 def dict_value(dict_uuid, key):
     u = str(uuid.uuid4()).upper()
-    return u, act('is.workflow.actions.getvalueforkey', WFDictionaryKey=key, WFInput=output(dict_uuid, 'Dictionary'), UUID=u)
+    return u, act('is.workflow.actions.getvalueforkey', WFGetDictionaryValueType='Value', WFDictionaryKey=key, WFInput=output(dict_uuid, 'Dictionary'), UUID=u)
 
 def shortcut(actions, color=4282601983, glyph=59511):
     return {
@@ -105,8 +105,14 @@ def control_actions():
     }
     for name, body in branches.items():
         g = str(uuid.uuid4()).upper()
-        acts.append(act('is.workflow.actions.conditional', WFControlFlowMode=0, GroupingIdentifier=g, WFCondition=4,
-                        WFConditionalActionString=name, WFInput={'Type': 'Variable', 'Variable': var(a_u)}))
+        cond_in = {'Type': 'Variable', 'Variable': var(a_u)}
+        acts.append(act('is.workflow.actions.conditional', WFControlFlowMode=0, GroupingIdentifier=g,
+                        # current Shortcuts format (iOS 17+) …
+                        WFConditions={'Value': {'WFActionParameterFilterPrefix': 1, 'WFActionParameterFilterTemplates': [
+                            {'WFCondition': 4, 'WFConditionalActionString': name, 'WFInput': cond_in}]},
+                            'WFSerializationType': 'WFContentPredicateTableTemplate'},
+                        # … and the older flat format, for older versions
+                        WFCondition=4, WFConditionalActionString=name, WFInput=cond_in))
         acts += body
         acts.append(act('is.workflow.actions.conditional', WFControlFlowMode=2, GroupingIdentifier=g))
     return acts
