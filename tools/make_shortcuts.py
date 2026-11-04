@@ -124,7 +124,7 @@ def ask_actions():
 
 BUILD = {
     'Ask Pocket Agent': ('Type or say a request — opens Pocket Agent and runs it. Add it to Siri, Back Tap or the Action button.', ask_actions(), 4292093695, 59446),
-    'PA Control':       ('Lets Pocket Agent control brightness, volume, music, timers, reminders, calendar, speech, battery.', control_actions(), 4282601983, 59511),
+    'pa-control':       ('Lets Pocket Agent control brightness, volume, music, timers, reminders, calendar, speech, battery.', control_actions(), 4282601983, 59511),
 }
 for f in os.listdir(OUT):
     if f.endswith('.shortcut'): os.unlink(os.path.join(OUT, f))

@@ -149,9 +149,9 @@ Object.assign(TOOLS, ACTION_TOOLS, {
       let v = input ?? '';
       if (shortcut === 'PA Event') { try { v = JSON.parse(input); } catch {} }
       else if (v !== '' && !isNaN(Number(v))) v = Number(v);
-      openURL(runShortcutURL('PA Control', JSON.stringify({ a: shortcut, v })));
-      const installed = (store.settings().installedShortcuts || []).includes('PA Control');
-      return { ok: true, output: `${say || 'Running ' + shortcut}…${installed ? '' : '\nIf nothing happens, install “PA Control” in ⚙︎ Settings → Set up once.'}` };
+      openURL(runShortcutURL('pa-control', JSON.stringify({ a: shortcut, v })));
+      const installed = (store.settings().installedShortcuts || []).includes('pa-control');
+      return { ok: true, output: `${say || 'Running ' + shortcut}…${installed ? '' : '\nIf nothing happens, install “pa-control” in ⚙︎ Settings → Set up once.'}` };
     },
   },
   open_deep: {

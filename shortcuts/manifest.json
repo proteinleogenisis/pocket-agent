@@ -6,9 +6,9 @@
   "desc": "Type or say a request \u2014 opens Pocket Agent and runs it. Add it to Siri, Back Tap or the Action button."
  },
  {
-  "name": "PA Control",
-  "file": "shortcuts/PA%20Control.shortcut",
-  "download": "PA Control.shortcut",
+  "name": "pa-control",
+  "file": "shortcuts/pa-control.shortcut",
+  "download": "pa-control.shortcut",
   "desc": "Lets Pocket Agent control brightness, volume, music, timers, reminders, calendar, speech, battery."
  }
 ]
