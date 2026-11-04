@@ -146,9 +146,12 @@ Object.assign(TOOLS, ACTION_TOOLS, {
     },
     run: async ({ shortcut, input, say }) => {
       if (NATIVE) { const r = await nativeCall({ op: 'device', action: shortcut, input }); return { ok: r.ok, output: r.output, error: r.ok ? undefined : r.output }; }
-      openURL(runShortcutURL(shortcut, input));
-      const installed = (store.settings().installedShortcuts || []).includes(shortcut);
-      return { ok: true, output: `${say || 'Running ' + shortcut}… (via your “${shortcut}” Shortcut)${installed ? '' : `\nIf nothing happens, install “${shortcut}” in ⚙︎ Settings → Device control.`}` };
+      let v = input ?? '';
+      if (shortcut === 'PA Event') { try { v = JSON.parse(input); } catch {} }
+      else if (v !== '' && !isNaN(Number(v))) v = Number(v);
+      openURL(runShortcutURL('PA Control', JSON.stringify({ a: shortcut, v })));
+      const installed = (store.settings().installedShortcuts || []).includes('PA Control');
+      return { ok: true, output: `${say || 'Running ' + shortcut}…${installed ? '' : '\nIf nothing happens, install “PA Control” in ⚙︎ Settings → Set up once.'}` };
     },
   },
   open_deep: {

@@ -67,11 +67,72 @@ SHORTCUTS = {
     'PA Bluetooth Off': ('Turn Bluetooth off', [act('is.workflow.actions.bluetooth.set', OnValue=False)]),
 }
 
+# ---------- One dispatcher Shortcut ("PA Control") instead of 13 separate installs ----------
+# Pocket Agent runs it as  shortcuts://run-shortcut?name=PA%20Control&input=text&text={"a":"PA Brightness","v":0.4}
+def var(u, name='Dictionary Value'):
+    return output(u, name)
+def var_text(u, name='Dictionary Value'):
+    return output_text(u, name)
+
+def control_actions():
+    d = str(uuid.uuid4()).upper()
+    a_u, a = dict_value(d, 'a'); v_u, v = dict_value(d, 'v')
+    acts = [act('is.workflow.actions.detect.dictionary', WFInput=INPUT, UUID=d), a, v]
+    def event_body():
+        e = str(uuid.uuid4()).upper()
+        t_u, t = dict_value(e, 't'); s_u, s_ = dict_value(e, 's'); en_u, en = dict_value(e, 'e')
+        return [act('is.workflow.actions.detect.dictionary', WFInput=var(v_u), UUID=e), t, s_, en,
+                act('is.workflow.actions.addnewevent', WFCalendarItemTitle=var_text(t_u), WFCalendarItemStartDate=var_text(s_u),
+                    WFCalendarItemEndDate=var_text(en_u), WFCalendarItemAllDay=False, ShowWhenRun=False)]
+    def battery_body():
+        b = str(uuid.uuid4()).upper()
+        return [act('is.workflow.actions.getbatterylevel', UUID=b),
+                act('is.workflow.actions.showresult', Text=text_of({'OutputUUID': b, 'Type': 'ActionOutput', 'OutputName': 'Battery Level'}))]
+    branches = {
+        'PA Brightness': [act('is.workflow.actions.setbrightness', WFBrightness=var(v_u))],
+        'PA Volume':     [act('is.workflow.actions.setvolume', WFVolume=var(v_u))],
+        'PA Play Pause': [act('is.workflow.actions.pausemusic', WFPlayPauseBehavior='Play/Pause')],
+        'PA Next Track': [act('is.workflow.actions.skipforward')],
+        'PA Timer':      [act('is.workflow.actions.timer.start', WFDuration={'Value': {'Magnitude': var(v_u), 'Unit': 'min'}, 'WFSerializationType': 'WFQuantityFieldValue'})],
+        'PA Reminder':   [act('is.workflow.actions.addnewreminder', WFCalendarItemTitle=var_text(v_u))],
+        'PA Event':      event_body(),
+        'PA Speak':      [act('is.workflow.actions.speaktext', WFText=var_text(v_u))],
+        'PA Battery':    battery_body(),
+        'PA WiFi On':    [act('is.workflow.actions.wifi.set', OnValue=True)],
+        'PA WiFi Off':   [act('is.workflow.actions.wifi.set', OnValue=False)],
+        'PA Bluetooth On':  [act('is.workflow.actions.bluetooth.set', OnValue=True)],
+        'PA Bluetooth Off': [act('is.workflow.actions.bluetooth.set', OnValue=False)],
+    }
+    for name, body in branches.items():
+        g = str(uuid.uuid4()).upper()
+        acts.append(act('is.workflow.actions.conditional', WFControlFlowMode=0, GroupingIdentifier=g, WFCondition=4,
+                        WFConditionalActionString=name, WFInput={'Type': 'Variable', 'Variable': var(a_u)}))
+        acts += body
+        acts.append(act('is.workflow.actions.conditional', WFControlFlowMode=2, GroupingIdentifier=g))
+    return acts
+
+# ---------- "Ask Pocket Agent": type or say a request → opens Pocket Agent and runs it ----------
+APP_URL = 'https://proteinleogenisis.github.io/pocket-agent/?q='
+def ask_actions():
+    q = str(uuid.uuid4()).upper(); e = str(uuid.uuid4()).upper()
+    url = APP_URL + '￼'
+    return [
+        act('is.workflow.actions.ask', WFAskActionPrompt='Ask Pocket Agent', WFInputType='Text', UUID=q),
+        act('is.workflow.actions.urlencode', WFInput=output_text(q, 'Provided Input'), UUID=e),
+        act('is.workflow.actions.openurl', WFInput={'Value': {'string': url, 'attachmentsByRange': {f'{{{len(APP_URL)}, 1}}': {'OutputUUID': e, 'Type': 'ActionOutput', 'OutputName': 'URL Encoded Text'}}}, 'WFSerializationType': 'WFTextTokenString'}),
+    ]
+
+BUILD = {
+    'Ask Pocket Agent': ('Type or say a request — opens Pocket Agent and runs it. Add it to Siri, Back Tap or the Action button.', ask_actions(), 4292093695, 59446),
+    'PA Control':       ('Lets Pocket Agent control brightness, volume, music, timers, reminders, calendar, speech, battery.', control_actions(), 4282601983, 59511),
+}
+for f in os.listdir(OUT):
+    if f.endswith('.shortcut'): os.unlink(os.path.join(OUT, f))
 manifest = []
-for name, (desc, actions) in SHORTCUTS.items():
+for name, (desc, actions, color, glyph) in BUILD.items():
     slug = name.lower().replace(' ', '-')
     with tempfile.NamedTemporaryFile(suffix='.shortcut', delete=False) as tmp:
-        plistlib.dump(shortcut(actions), tmp, fmt=plistlib.FMT_BINARY)
+        plistlib.dump(shortcut(actions, color, glyph), tmp, fmt=plistlib.FMT_BINARY)
     out = os.path.join(OUT, slug + '.shortcut')
     r = subprocess.run(['shortcuts', 'sign', '--mode', 'anyone', '--input', tmp.name, '--output', out], capture_output=True, text=True)
     os.unlink(tmp.name)

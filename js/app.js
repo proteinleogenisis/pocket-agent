@@ -294,8 +294,22 @@ async function initModelUI() {
     if (/^Qwen3|1\.5B|Llama/.test(settings.modelId || '')) settings.modelId = modelIdFor('Qwen2.5-Coder-0.5B-Instruct', gpu.f16 !== false);
     store.saveSettings(settings);
   }
+  // Brain: use the smartest model that fits (1.5B, tested on a 4 GB iPad). If loading it ever
+  // crashed the tab, fall back to 0.5B for good and say so.
+  const crashed = localStorage.getItem('pa.loadingModel');
+  if (crashed) {
+    localStorage.removeItem('pa.loadingModel');
+    if (/1\.5B/.test(crashed)) {
+      settings.brainFallback = true; settings.modelId = modelIdFor('Qwen2.5-Coder-0.5B-Instruct', gpu.f16 !== false); store.saveSettings(settings);
+      addMsg('err', 'The 1.5B brain ran out of memory on this iPad, so I switched to the 0.5B brain.');
+    }
+  }
+  if (gpu.ok && !settings.brainBest && !settings.brainFallback) {
+    settings.brainBest = true; settings.contextWindow = 1024;
+    settings.modelId = modelIdFor('Qwen2.5-Coder-1.5B-Instruct', gpu.f16 !== false); store.saveSettings(settings);
+  }
   $('gpuInfo').textContent = gpu.ok
-    ? `WebGPU ready${gpu.f16 ? ' (f16)' : ' (no f16 — using f32 weights)'} · max buffer ${(gpu.maxBuffer / 2 ** 20).toFixed(0)} MB${lowMem ? ' · low-memory device: Coder 0.5B with 1k context recommended' : ''}`
+    ? `Runs on this iPad's GPU. ${settings.brainFallback ? 'Using 0.5B (1.5B ran out of memory).' : 'Qwen2.5-Coder 1.5B is the smartest that fits.'}`
     : `⚠︎ ${gpu.reason} The model can't run here, but /commands, OCR and code tools still work.`;
   const sel = $('modelSelect'); sel.replaceChildren();
   for (const c of CANDIDATES) {
@@ -328,6 +342,7 @@ async function loadModel(id) {
   if (!id) return;
   $('modelDot').className = 'dot loading'; $('modelLabel').textContent = 'Loading…';
   $('loadProgress').hidden = false; $('loadModelBtn').disabled = true;
+  try { localStorage.setItem('pa.loadingModel', id); } catch {}
   try {
     await llm.load(id, {
       contextWindow: settings.contextWindow,
@@ -338,7 +353,9 @@ async function loadModel(id) {
     $('modelLabel').textContent = NATIVE ? 'Qwen2.5-Coder 1.5B' : id.replace(/-q4f(16|32)_1-MLC$/, '');
     $('loadText').textContent = `Loaded in ${llm.loadSeconds.toFixed(1)}s. Runs offline from now on.`;
     requestPersist();
+    try { localStorage.removeItem('pa.loadingModel'); } catch {}
   } catch (e) {
+    try { localStorage.removeItem('pa.loadingModel'); } catch {}
     $('modelDot').className = 'dot'; $('modelLabel').textContent = 'Model not loaded';
     await llm.unload();
     const msg = String(e?.message || e);
@@ -600,6 +617,14 @@ async function boot() {
   const q = new URLSearchParams(location.search);
   if (q.get('bench')) { settings.contextWindow = +(q.get('ctx') || settings.contextWindow); await loadModel(q.get('bench')); await benchmark(); }
   // End-to-end task suite (development / on-device verification): ?bench=<model>&tasks=1
+  // "Ask Pocket Agent" Shortcut / links: ?q=<request> runs it as soon as the brain is ready.
+  if (q.get('q')) {
+    const ask = q.get('q').slice(0, 2000);
+    window.history.replaceState(null, '', location.pathname);
+    const t0 = Date.now();
+    while (!llm.ready && $('modelDot').className.includes('loading') && Date.now() - t0 < 120000) await new Promise((r) => setTimeout(r, 300));
+    window.__paAsk(ask);
+  }
   if (q.get('tasks')) { const { runTasks } = await import('../tests/tasks.js'); const r = await runTasks(); addMsg('tool', `${r.tasks} tasks passed in ${r.total_s}s\n` + r.results.join('\n'), 'task suite'); }
 }
 boot();

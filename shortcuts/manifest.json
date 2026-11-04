@@ -1,67 +1,12 @@
 [
  {
-  "name": "PA Brightness",
-  "file": "shortcuts/pa-brightness.shortcut",
-  "desc": "Set screen brightness (0\u20131)"
+  "name": "Ask Pocket Agent",
+  "file": "shortcuts/ask-pocket-agent.shortcut",
+  "desc": "Type or say a request \u2014 opens Pocket Agent and runs it. Add it to Siri, Back Tap or the Action button."
  },
  {
-  "name": "PA Volume",
-  "file": "shortcuts/pa-volume.shortcut",
-  "desc": "Set volume (0\u20131)"
- },
- {
-  "name": "PA Play Pause",
-  "file": "shortcuts/pa-play-pause.shortcut",
-  "desc": "Play or pause music"
- },
- {
-  "name": "PA Next Track",
-  "file": "shortcuts/pa-next-track.shortcut",
-  "desc": "Skip to the next song"
- },
- {
-  "name": "PA Timer",
-  "file": "shortcuts/pa-timer.shortcut",
-  "desc": "Start a timer (minutes)"
- },
- {
-  "name": "PA Reminder",
-  "file": "shortcuts/pa-reminder.shortcut",
-  "desc": "Add a reminder"
- },
- {
-  "name": "PA Event",
-  "file": "shortcuts/pa-event.shortcut",
-  "desc": "Add a calendar event"
- },
- {
-  "name": "PA Speak",
-  "file": "shortcuts/pa-speak.shortcut",
-  "desc": "Speak text out loud"
- },
- {
-  "name": "PA Battery",
-  "file": "shortcuts/pa-battery.shortcut",
-  "desc": "Show battery level"
- },
- {
-  "name": "PA WiFi On",
-  "file": "shortcuts/pa-wifi-on.shortcut",
-  "desc": "Turn Wi-Fi on"
- },
- {
-  "name": "PA WiFi Off",
-  "file": "shortcuts/pa-wifi-off.shortcut",
-  "desc": "Turn Wi-Fi off"
- },
- {
-  "name": "PA Bluetooth On",
-  "file": "shortcuts/pa-bluetooth-on.shortcut",
-  "desc": "Turn Bluetooth on"
- },
- {
-  "name": "PA Bluetooth Off",
-  "file": "shortcuts/pa-bluetooth-off.shortcut",
-  "desc": "Turn Bluetooth off"
+  "name": "PA Control",
+  "file": "shortcuts/pa-control.shortcut",
+  "desc": "Lets Pocket Agent control brightness, volume, music, timers, reminders, calendar, speech, battery."
  }
 ]

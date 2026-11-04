@@ -60,12 +60,7 @@
       <h3>Brain</h3>
       <p class="muted" id="gpuInfo">Checking…</p>
       <div id="webModelBox">
-        <select id="modelSelect"></select>
-        <div class="row wrap">
-          <button class="btn primary" id="loadModelBtn">Download &amp; load</button>
-          <button class="btn" id="unloadModelBtn">Unload</button>
-          <button class="btn danger" id="deleteModelBtn">Delete download</button>
-        </div>
+        <button class="btn primary" id="loadModelBtn">Download &amp; load</button>
       </div>
       <div class="progress" id="loadProgress" hidden><div></div></div>
       <p class="muted small" id="loadText"></p>
@@ -74,6 +69,12 @@
     <section>
       <label class="row"><b>Internet</b> <input type="checkbox" id="internetToggle"></label>
       <p class="muted small">Web search, reading pages, weather and facts. Only your request's words are sent — never screenshots, files or notes.</p>
+    </section>
+
+    <section id="shortcutSection">
+      <h3>Set up once</h3>
+      <p class="muted small">Tap <b>Install</b> on each → <b>Add Shortcut</b>. <b>PA Control</b> lets the agent change brightness, volume, music, timers, reminders and calendar. <b>Ask Pocket Agent</b> opens it from anywhere: say “Ask Pocket Agent” to Siri, or set Settings → Accessibility → Touch → Back Tap → Double Tap → Ask Pocket Agent.</p>
+      <div id="shortcutList" class="small"></div>
     </section>
 
     <section>
@@ -86,6 +87,11 @@
 
       <section>
         <h3>Model options</h3>
+        <label class="row">Brain <select id="modelSelect"></select></label>
+        <div class="row wrap">
+          <button class="btn" id="unloadModelBtn">Unload</button>
+          <button class="btn danger" id="deleteModelBtn">Delete download</button>
+        </div>
         <label class="row">Context window
           <select id="ctxSelect"><option value="1024">1k (least memory)</option><option value="2048">2k</option><option value="4096">4k</option></select>
         </label>
@@ -100,11 +106,6 @@
         <div id="toolPerms"></div>
       </section>
 
-      <section id="shortcutSection">
-        <h3>Device control (web version)</h3>
-        <p class="muted small">In Safari, device control needs these Shortcuts: tap <b>Install</b> → <b>Download</b> → open it → <b>Add Shortcut</b>. The iPad app does this natively.</p>
-        <div id="shortcutList" class="small"></div>
-      </section>
 
       <section>
         <h3>Answers &amp; privacy</h3>
