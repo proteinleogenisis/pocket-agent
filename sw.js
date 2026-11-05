@@ -1,6 +1,6 @@
 // Offline support: precaches the app shell and vendored engines (OCR, Python, model runtime).
 // Model weights are cached separately by WebLLM; this worker never touches them.
-const VERSION = 'c1ae56ccf12b';
+const VERSION = '2e903c146524';
 const CACHE = `pocket-agent-${VERSION}`;
 const FILES = [
   "./",

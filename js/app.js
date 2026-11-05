@@ -133,9 +133,10 @@ let popupMode = false, pendingCopy = null;
 function armCopy(text) {
   if (!popupMode || busy || !String(text || '').trim() || !window.ClipboardItem || !navigator.clipboard?.write) return;
   let resolve, reject; const p = new Promise((res, rej) => { resolve = res; reject = rej; });
-  pendingCopy = { resolve, reject, done: false };
-  navigator.clipboard.write([new ClipboardItem({ 'text/plain': p.then((t) => new Blob([t], { type: 'text/plain' })) })])
-    .then(() => { pendingCopy && (pendingCopy.ok = true); }).catch(() => {});
+  const c = { resolve, reject, done: false };
+  c.written = navigator.clipboard.write([new ClipboardItem({ 'text/plain': p.then((t) => new Blob([t], { type: 'text/plain' })) })])
+    .then(() => true, () => false);
+  pendingCopy = c;
 }
 function copyText(t) {
   t = String(t || '');
@@ -148,7 +149,9 @@ function finishCopy(t, live) {
   c.done = true;
   if (!t) { c.reject(new Error('no answer')); return; }
   c.resolve(copyText(t));
-  live?.append(el('div', 'copied', '✓ Copied — close this (✕) and press ⌘V to put it in your app'));
+  c.written.then((ok) => live?.append(ok
+    ? el('div', 'copied', '✓ Copied — close this (✕) and press ⌘V to put it in your app')
+    : el('div', 'meta', 'iPadOS didn\'t allow the automatic copy — tap 📋 Copy to paste back')));
 }
 
 async function send(text) {
