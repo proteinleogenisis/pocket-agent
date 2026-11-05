@@ -626,8 +626,16 @@ async function boot() {
   const q = new URLSearchParams(location.search);
   if (q.get('bench')) { settings.contextWindow = +(q.get('ctx') || settings.contextWindow); await loadModel(q.get('bench')); await benchmark(); }
   // End-to-end task suite (development / on-device verification): ?bench=<model>&tasks=1
-  // "Ask Pocket Agent" Shortcuts / links: #q=<request>&ctx=<screen text> (or ?q=). The part after "#" never
-  // leaves the iPad. ctx is text the Shortcut read on-device from a screenshot of the app you were in.
+  await handleIncoming(q);
+  window.addEventListener('hashchange', () => handleIncoming(new URLSearchParams()));
+  if (q.get('tasks')) { const { runTasks } = await import('../tests/tasks.js'); const r = await runTasks(); addMsg('tool', `${r.tasks} tasks passed in ${r.total_s}s\n` + r.results.join('\n'), 'task suite'); }
+}
+boot();
+
+// "Ask Pocket Agent" Shortcuts / links: #q=<request>&ctx=<screen text> (or ?q=). The part after "#" never
+// leaves the iPad. ctx is text the Shortcut read on-device from a screenshot of the app you were in.
+// Runs on open and whenever Safari reuses this tab with a new #… (that doesn't reload the page).
+async function handleIncoming(q) {
   const h = new URLSearchParams(location.hash.slice(1));
   const ctx = (h.get('ctx') || '').trim();
   if (ctx) {
@@ -645,9 +653,7 @@ async function boot() {
     while (!llm.ready && $('modelDot').className.includes('loading') && Date.now() - t0 < 300000) await new Promise((r) => setTimeout(r, 300));
     window.__paAsk(ask);
   }
-  if (q.get('tasks')) { const { runTasks } = await import('../tests/tasks.js'); const r = await runTasks(); addMsg('tool', `${r.tasks} tasks passed in ${r.total_s}s\n` + r.results.join('\n'), 'task suite'); }
 }
-boot();
 
 // Exposed for in-browser tests only.
 window.__pa = { send, ingestImage, ingestFile, clearScreen, get attachment() { return attachment; }, confirm: confirmAction, get screen() { return screen; }, warmPython };
