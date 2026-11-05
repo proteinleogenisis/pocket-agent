@@ -378,20 +378,24 @@ async function initModelUI() {
   $('gpuInfo').textContent = gpu.ok
     ? `Runs on this iPad's GPU. ${settings.brainFallback ? 'Using 0.5B (1.5B ran out of memory).' : 'Qwen2.5-Coder 1.5B is the smartest that fits.'}`
     : `⚠︎ ${gpu.reason} The model can't run here, but /commands, OCR and code tools still work.`;
-  const sel = $('modelSelect'); sel.replaceChildren();
-  for (const c of CANDIDATES) {
-    const id = modelIdFor(c.base, gpu.f16 !== false);
-    if (!id) continue;
-    const rec = modelRecord(id);
-    const cached = await isCached(id);
-    const heavy = lowMem && rec.vram_required_MB > 1100;
-    const o = el('option', null, `${cached ? '✓ ' : ''}${c.label} — ${heavy ? 'may run out of memory on this iPad' : c.note} (${Math.round(rec.vram_required_MB)} MB @4k)`);
-    o.value = id; sel.append(o);
-  }
-  sel.value = settings.modelId || sel.options[0]?.value || '';
   $('loadModelBtn').disabled = !gpu.ok;
-  // Always load a downloaded model on open — no setting needed.
-  if (gpu.ok && settings.modelId && await isCached(settings.modelId)) loadModel(settings.modelId);
+  // Load the chosen brain FIRST (if it's downloaded) — every second here is lag after ⌘⇧Space.
+  // In the pop-up it also starts when not downloaded yet, so a first-time download begins right away.
+  if (gpu.ok && settings.modelId && (/[#&]ctx=/.test(location.hash) || await isCached(settings.modelId))) loadModel(settings.modelId);
+  // The Advanced brain list (with ✓ for downloaded ones) fills in afterwards, in the background.
+  (async () => {
+    const sel = $('modelSelect'); sel.replaceChildren();
+    for (const c of CANDIDATES) {
+      const id = modelIdFor(c.base, gpu.f16 !== false);
+      if (!id) continue;
+      const rec = modelRecord(id);
+      const cached = await isCached(id).catch(() => false);
+      const heavy = lowMem && rec.vram_required_MB > 1100;
+      const o = el('option', null, `${cached ? '✓ ' : ''}${c.label} — ${heavy ? 'may run out of memory on this iPad' : c.note} (${Math.round(rec.vram_required_MB)} MB @4k)`);
+      o.value = id; sel.append(o);
+    }
+    sel.value = settings.modelId || sel.options[0]?.value || '';
+  })();
 }
 
 // Native iPad app: the 1.5B model runs in llama.cpp (Metal) and loads automatically.
@@ -407,6 +411,7 @@ async function initNativeModel() {
 
 async function loadModel(id) {
   if (!id) return;
+  window.__paT = { ...(window.__paT || {}), loadStart: Math.round(performance.now()) };
   $('modelDot').className = 'dot loading'; $('modelLabel').textContent = 'Loading…';
   $('loadProgress').hidden = false; $('loadModelBtn').disabled = true;
   try { localStorage.setItem('pa.loadingModel', id); } catch {}
@@ -416,7 +421,7 @@ async function loadModel(id) {
       onProgress: (r) => { $('loadProgress').firstElementChild.style.width = `${Math.round(r.progress * 100)}%`; $('loadText').textContent = r.text; status(r.text.slice(0, 90)); },
     });
     if (!NATIVE) { settings.modelId = id; store.saveSettings(settings); }
-    $('modelDot').className = 'dot ready';
+    $('modelDot').className = 'dot ready'; window.__paT = { ...(window.__paT || {}), ready: Math.round(performance.now()) };
     $('modelLabel').textContent = NATIVE ? 'Qwen2.5-Coder 1.5B' : id.replace(/-q4f(16|32)_1-MLC$/, '');
     $('loadText').textContent = `Loaded in ${llm.loadSeconds.toFixed(1)}s. Runs offline from now on.`;
     requestPersist();
