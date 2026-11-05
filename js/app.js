@@ -652,6 +652,13 @@ async function handleIncoming(q) {
   }
   const askText = h.get('q') || q.get('q');
   if (askText) {
+    // A newer Pocket Agent is installing (e.g. a pop-up panel opened with an old saved copy): let it finish.
+    // The page reloads itself when it's ready, and the request after "#" is still there to run.
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      await reg?.update();
+      if (reg?.installing || reg?.waiting) { status('Updating Pocket Agent — your request runs right after…'); reg.waiting?.postMessage?.('skip'); return; }
+    } catch {}
     const ask = askText.slice(0, 2000);
     window.history.replaceState(null, '', location.pathname);
     // First use in a new place (e.g. the Shortcuts pop-up panel has its own storage): fetch the brain now.
