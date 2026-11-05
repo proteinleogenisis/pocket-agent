@@ -211,6 +211,11 @@ async function send(text) {
       remember(text, res.text, usedScreen);
     } else if (res.kind === 'tool') {
       const m = showToolResult(res);
+      if (popupMode && res.ok && !['device', 'open_app', 'open_deep'].includes(res.tool)) {
+        const b = el('button', 'btn', '📋 Copy to paste back');
+        b.onclick = async () => { try { await navigator.clipboard.writeText(copyText(res.markdown || res.text)); b.textContent = 'Copied ✓ — close and press ⌘V'; } catch (e) { b.textContent = 'Copy failed: ' + (e?.message || e); } };
+        m?.append(b);
+      }
       if (res.tool !== 'device' && res.tool !== 'open_app' && res.tool !== 'open_deep') finishCopy(res.ok ? (res.markdown || res.text) : '', m); else finishCopy('', null);
       remember(text, res.text, usedScreen, true);
     } else {
@@ -372,13 +377,16 @@ async function initModelUI() {
   // Only fall back after the 1.5B load died twice in a row: a pop-up panel closed mid-load looks the same as one crash.
   const crashed = localStorage.getItem('pa.loadingModel');
   let crashes = +(localStorage.getItem('pa.loadCrashes') || 0);
-  if (crashed) { localStorage.removeItem('pa.loadingModel'); crashes = /1\.5B/.test(crashed) ? crashes + 1 : 0; localStorage.setItem('pa.loadCrashes', String(crashes)); }
+  // The pop-up is often closed mid-load on purpose — that's not a crash, so it never counts there.
+  if (crashed && /[#&]ctx=/.test(location.hash)) { localStorage.removeItem('pa.loadingModel'); }
+  else if (crashed) { localStorage.removeItem('pa.loadingModel'); crashes = /1\.5B/.test(crashed) ? crashes + 1 : 0; localStorage.setItem('pa.loadCrashes', String(crashes)); }
   if (crashed && crashes >= 2) {
     {
       settings.brainFallback = true; settings.modelId = modelIdFor('Qwen2.5-Coder-0.5B-Instruct', gpu.f16 !== false); store.saveSettings(settings);
       addMsg('err', 'The 1.5B brain ran out of memory on this iPad, so I switched to the 0.5B brain.');
     }
   }
+  if (!settings.fallbackReset2) { settings.fallbackReset2 = true; settings.brainFallback = false; localStorage.removeItem('pa.loadCrashes'); store.saveSettings(settings); }
   if (!settings.pickReset) { settings.pickReset = true; settings.userPickedModel = false; store.saveSettings(settings); } // earlier button bug
   // Always the best brain unless it really didn't fit, or you picked another one under Advanced.
   const best = modelIdFor('Qwen2.5-Coder-1.5B-Instruct', gpu.f16 !== false);
