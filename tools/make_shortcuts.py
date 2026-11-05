@@ -170,10 +170,24 @@ def test_notability_actions():
         }}, 'WFSerializationType': 'WFTextTokenString'}),
     ]
 
+def agent_actions():
+    # ⌘⇧Space: screenshot → text read on-device → Pocket Agent pops up over the app at once and starts its
+    # brain while you type your question in it. No question box first, so no waiting after Return.
+    ss, x, e = (str(uuid.uuid4()).upper() for _ in range(3))
+    base = 'https://proteinleogenisis.github.io/pocket-agent/#ctx='
+    return [
+        act('is.workflow.actions.takescreenshot', WFTakeScreenshotScreenshotType='Full Screen', UUID=ss),
+        act('is.workflow.actions.extracttextfromimage', WFImage=output(ss, 'Screenshot'), UUID=x),
+        act('is.workflow.actions.urlencode', WFInput=output_text(x, 'Text from Image'), UUID=e),
+        act('is.workflow.actions.showwebpage', WFURL={'Value': {'string': base + '\ufffc', 'attachmentsByRange': {
+            f'{{{len(base)}, 1}}': {'OutputUUID': e, 'Type': 'ActionOutput', 'OutputName': 'URL Encoded Text'}}}, 'WFSerializationType': 'WFTextTokenString'}),
+    ]
+
 BUILD = {
+    'Pocket Agent': ('⌘⇧Space: pops up over any app, reads that screen on-device, answers are copied for ⌘V.', agent_actions(), 4292093695, 59446),
     'pa-test-notability': ('Test only.', test_notability_actions(), 4282601983, 59511),
     'pa-open': ('Lets Pocket Agent open Settings pages (General, Wi-Fi, Bluetooth…).', open_actions(), 4282601983, 59511),
-    'Pocket Agent Popup': ('Opens Pocket Agent in a panel over your current app, with that screen\'s text as context (read on-device).', popup_actions(), 4292093695, 59446),
+    'zz-unused-popup': ('Opens Pocket Agent in a panel over your current app, with that screen\'s text as context (read on-device).', popup_actions(), 4292093695, 59446),
     'Ask Pocket Agent': ('Type or say a request — opens Pocket Agent and runs it. Add it to Siri, Back Tap or the Action button.', ask_actions(), 4292093695, 59446),
     'pa-control':       ('Lets Pocket Agent control brightness, volume, music, timers, reminders, calendar, speech, battery.', control_actions(), 4282601983, 59511),
 }
@@ -189,7 +203,7 @@ for name, (desc, actions, color, glyph) in BUILD.items():
     os.unlink(tmp.name)
     if r.returncode or not os.path.exists(out):
         sys.exit(f'Signing {name} failed: {r.stderr.strip()}')
-    if name.startswith('pa-test'): print('signed', name); continue
+    if name.startswith('pa-test') or name.startswith('zz-'): print('signed', name); continue
     manifest.append({'name': name, 'file': f'shortcuts/{slug.replace(" ", "%20")}.shortcut', 'download': f'{slug}.shortcut', 'desc': desc})
     print('signed', name)
 json.dump(manifest, open(os.path.join(OUT, 'manifest.json'), 'w'), indent=1)

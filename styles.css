@@ -87,3 +87,6 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); 
 
 #advancedBox { border-top: 1px solid var(--line); padding-top: 10px; }
 #advancedBox summary { cursor: pointer; padding: 6px 0; }
+
+.copied { margin-top: 6px; font-size: 0.9em; color: #1a7f37; font-weight: 600; }
+@media (prefers-color-scheme: dark) { .copied { color: #3fb950; } }

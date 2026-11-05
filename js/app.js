@@ -125,6 +125,32 @@ function confirmAction({ tool, input, fromModel }) {
 }
 
 // ---------------- Sending ----------------
+// ---------------- Pop-up mode: auto-copy every answer ----------------
+// iPadOS doesn't let apps type into other apps, so in the pop-up each answer goes to the clipboard by
+// itself: close the pop-up and press ⌘V. Safari only allows clipboard writes during a key press or tap,
+// so the write starts on Return with a placeholder that's filled in when the answer is ready.
+let popupMode = false, pendingCopy = null;
+function armCopy(text) {
+  if (!popupMode || busy || !String(text || '').trim() || !window.ClipboardItem || !navigator.clipboard?.write) return;
+  let resolve, reject; const p = new Promise((res, rej) => { resolve = res; reject = rej; });
+  pendingCopy = { resolve, reject, done: false };
+  navigator.clipboard.write([new ClipboardItem({ 'text/plain': p.then((t) => new Blob([t], { type: 'text/plain' })) })])
+    .then(() => { pendingCopy && (pendingCopy.ok = true); }).catch(() => {});
+}
+function copyText(t) {
+  t = String(t || '');
+  if (/\n\n\*\*\d+\. /.test('\n\n' + t)) return t.replace(/\*\*/g, '').replace(/```[a-z]*\n?/g, '').replace(/\n\n⚠️ Not verified[^\n]*/g, '').trim();
+  return stripStats(t);
+}
+function finishCopy(t, live) {
+  const c = pendingCopy; pendingCopy = null;
+  if (!c || c.done) return;
+  c.done = true;
+  if (!t) { c.reject(new Error('no answer')); return; }
+  c.resolve(copyText(t));
+  live?.append(el('div', 'copied', '✓ Copied — close this (✕) and press ⌘V to put it in your app'));
+}
+
 async function send(text) {
   if (/^(stop|cancel)( that| it)?$/i.test(text.trim()) && store.pending().length) { store.setPending([]); addMsg('tool', 'Cancelled the remaining steps.', 'steps'); return; }
   text = text.trim();
@@ -134,6 +160,7 @@ async function send(text) {
   setBusy(true);
   try { localStorage.setItem('pa.generating', String(Date.now())); } catch {}
   const usedScreen = !!screen;
+  if (usedScreen) markScreenAsked();
   let live = null;
   try {
     const res = await handle({
@@ -154,9 +181,11 @@ async function send(text) {
       }
       const st = [fmtStats(res.stats), usedScreen && 'used screen text', res.online && `🌐 ${res.online.join(', ')}`].filter(Boolean).join(' · ');
       if (st) live.append(el('div', 'meta', st));
+      finishCopy(res.text, live);
       remember(text, res.text, usedScreen);
     } else if (res.kind === 'tool') {
-      showToolResult(res);
+      const m = showToolResult(res);
+      if (res.tool !== 'device' && res.tool !== 'open_app' && res.tool !== 'open_deep') finishCopy(res.ok ? (res.markdown || res.text) : '', m); else finishCopy('', null);
       remember(text, res.text, usedScreen, true);
     } else {
       addMsg('err', res.text);
@@ -164,6 +193,7 @@ async function send(text) {
   } catch (e) {
     addMsg('err', `Error: ${e?.message || e}`);
   } finally {
+    finishCopy('', null);
     setBusy(false); status('');
     try { localStorage.removeItem('pa.generating'); } catch {}
     if (usedScreen && settings.autoClearScreen) clearScreen('Screen text cleared after use.');
@@ -198,6 +228,7 @@ function showToolResult(res) {
     m.append(bar);
   }
   m.append(el('div', 'meta', `${res.tool} · ${res.ok ? 'done' : 'not completed'}`));
+  return m;
 }
 async function exportFile(name, content) {
   const file = new File([content], name, { type: 'text/plain' });
@@ -310,6 +341,7 @@ async function initModelUI() {
     settings.fallbackRechecked = true; settings.brainFallback = false; settings.brainBest = false; store.saveSettings(settings);
   }
   // 2k working memory for the 1.5B brain: screen text needs the room, and it only costs ~60 MB here.
+  if (!settings.ctx4k) { settings.ctx4k = true; settings.ctx2k = true; if (!settings.brainFallback) settings.contextWindow = 4096; store.saveSettings(settings); }
   if (!settings.ctx2k) { settings.ctx2k = true; if (settings.contextWindow < 2048 && !settings.brainFallback) settings.contextWindow = 2048; store.saveSettings(settings); }
   // Only fall back after the 1.5B load died twice in a row: a pop-up panel closed mid-load looks the same as one crash.
   const crashed = localStorage.getItem('pa.loadingModel');
@@ -324,7 +356,7 @@ async function initModelUI() {
   // Always the best brain unless it really didn't fit, or you picked another one under Advanced.
   const best = modelIdFor('Qwen2.5-Coder-1.5B-Instruct', gpu.f16 !== false);
   if (gpu.ok && !settings.brainFallback && !settings.userPickedModel && settings.modelId !== best) {
-    settings.brainBest = true; settings.contextWindow = Math.max(2048, settings.contextWindow || 0); settings.modelId = best; store.saveSettings(settings);
+    settings.brainBest = true; settings.contextWindow = Math.max(4096, settings.contextWindow || 0); settings.modelId = best; store.saveSettings(settings);
   }
   $('gpuInfo').textContent = gpu.ok
     ? `Runs on this iPad's GPU. ${settings.brainFallback ? 'Using 0.5B (1.5B ran out of memory).' : 'Qwen2.5-Coder 1.5B is the smartest that fits.'}`
@@ -526,9 +558,9 @@ function bind() {
   input.value = store.draft(); autosize();
   input.addEventListener('input', () => { autosize(); store.saveDraft(input.value); });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(input.value); }
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); armCopy(input.value); send(input.value); }
   });
-  $('composer').addEventListener('submit', (e) => { e.preventDefault(); busy ? stop() : send(input.value); });
+  $('composer').addEventListener('submit', (e) => { e.preventDefault(); if (busy) return stop(); armCopy(input.value); send(input.value); });
   $('attachBtn').onclick = () => $('fileInput').click();
   $('fileInput').onchange = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) ingestFile(f); };
   $('filePill').onclick = () => { clearAttachment(); addMsg('tool', 'File removed from context.', 'file detached'); };
@@ -645,13 +677,48 @@ boot();
 // "Ask Pocket Agent" Shortcuts / links: #q=<request>&ctx=<screen text> (or ?q=). The part after "#" never
 // leaves the iPad. ctx is text the Shortcut read on-device from a screenshot of the app you were in.
 // Runs on open and whenever Safari reuses this tab with a new #… (that doesn't reload the page).
+// Text read from a screenshot includes app chrome (toolbar labels, font names, single letters): drop it.
+const CHROME = /^(caption|helvetica.*|arial.*|times.*|font|size|\d{1,2}|[<>→←•|·⊕⊖ⓘ®©+\-]+.*\d*|en\b.*|b\s*i\s*u.*|biv.*|edit|done|cancel|share|undo|redo|search.*|\d{1,2}:\d{2}\s*(am|pm)?.*|\d{1,3}%|wed|mon|tue|thu|fri|sat|sun)$/i;
+export function cleanScreen(text) {
+  const out = [];
+  for (let l of String(text).split(/\n/)) {
+    l = l.replace(/\s+/g, ' ').trim();
+    if (l.length < 3 || CHROME.test(l) || !/[a-z0-9]{2}/i.test(l)) continue;
+    if (out[out.length - 1] !== l) out.push(l);
+  }
+  return out.join('\n');
+}
+// Scroll and press ⌘⇧Space again within 3 minutes (without asking anything in between) and the new
+// screen is added to the same page instead of replacing it.
+function addScreenPage(text) {
+  let acc = null; try { acc = JSON.parse(localStorage.getItem('pa.screenAcc') || 'null'); } catch {}
+  let full = text, pages = 1;
+  if (acc && !acc.asked && Date.now() - acc.at < 180000 && acc.text && acc.text !== text) {
+    const seen = new Set(acc.text.split('\n'));
+    const fresh = text.split('\n').filter((l) => !seen.has(l));
+    if (fresh.length) { full = acc.text + '\n' + fresh.join('\n'); pages = (acc.pages || 1) + 1; } else { full = acc.text; pages = acc.pages || 1; }
+  }
+  try { localStorage.setItem('pa.screenAcc', JSON.stringify({ text: full, at: Date.now(), asked: false, pages })); } catch {}
+  return { full, pages };
+}
+function markScreenAsked() { try { const a = JSON.parse(localStorage.getItem('pa.screenAcc') || 'null'); if (a) { a.asked = true; localStorage.setItem('pa.screenAcc', JSON.stringify(a)); } } catch {} }
+
 async function handleIncoming(q) {
   const h = new URLSearchParams(location.hash.slice(1));
-  const ctx = (h.get('ctx') || '').trim();
+  const ctx = cleanScreen(h.get('ctx') || '');
+  if (h.has('ctx')) popupMode = true;
   if (ctx) {
-    const lines = ctx.split(/\n/).filter((l) => l.trim());
-    screen = { text: ctx.slice(0, settings.contextWindow <= 1024 ? 1200 : 2400), lines: lines.length, ms: 0 };
-    $('screenPill').hidden = false; $('screenCount').textContent = `· ${lines.length} lines`;
+    const { full, pages } = addScreenPage(ctx);
+    const lines = full.split(/\n/).filter((l) => l.trim());
+    screen = { text: full.slice(0, settings.contextWindow >= 2048 ? 2400 : 1200), lines: lines.length, ms: 0 };
+    $('screenPill').hidden = false; $('screenCount').textContent = `· ${lines.length} lines${pages > 1 ? ` · ${pages} pages` : ''}`;
+  }
+  if (popupMode && !(h.get('q') || q.get('q'))) {
+    // Pop-up without a question: start the brain now, while you type.
+    window.history.replaceState(null, '', location.pathname);
+    if (!llm.ready && !$('modelDot').className.includes('loading') && gpu?.ok && settings.modelId) loadModel(settings.modelId);
+    const i = $('input'); i.placeholder = ctx ? 'Ask about this screen — answers are copied for ⌘V' : 'Ask anything — answers are copied for ⌘V'; i.focus();
+    return;
   }
   const askText = h.get('q') || q.get('q');
   if (askText) {
