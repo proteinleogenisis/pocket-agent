@@ -77,7 +77,10 @@ def var_text(u, name='Dictionary Value'):
 def control_actions():
     d = str(uuid.uuid4()).upper()
     a_u, a = dict_value(d, 'a'); v_u, v = dict_value(d, 'v')
-    acts = [act('is.workflow.actions.detect.dictionary', WFInput=INPUT, UUID=d), a, v]
+    # Turn the action name into plain Text, so each If compares text with text.
+    t_u = str(uuid.uuid4()).upper()
+    acts = [act('is.workflow.actions.detect.dictionary', WFInput=INPUT, UUID=d), a, v,
+            act('is.workflow.actions.gettext', WFTextActionText=var_text(a_u), UUID=t_u)]
     def event_body():
         e = str(uuid.uuid4()).upper()
         t_u, t = dict_value(e, 't'); s_u, s_ = dict_value(e, 's'); en_u, en = dict_value(e, 'e')
@@ -105,15 +108,9 @@ def control_actions():
     }
     for name, body in branches.items():
         g = str(uuid.uuid4()).upper()
-        cond_in = {'Type': 'Variable', 'Variable': var(a_u)}
-        # Shortcuts 7 (iPadOS 26) only reads the comparison text as a rich-text token, not a plain string.
-        cond_str = {'Value': {'string': name, 'attachmentsByRange': {}}, 'WFSerializationType': 'WFTextTokenString'}
+        cond_in = {'Type': 'Variable', 'Variable': output(t_u, 'Text')}
+        cond_str = name
         acts.append(act('is.workflow.actions.conditional', WFControlFlowMode=0, GroupingIdentifier=g,
-                        # current Shortcuts format (iOS 17+) …
-                        WFConditions={'Value': {'WFActionParameterFilterPrefix': 1, 'WFActionParameterFilterTemplates': [
-                            {'WFCondition': 4, 'WFConditionalActionString': cond_str, 'WFInput': cond_in}]},
-                            'WFSerializationType': 'WFContentPredicateTableTemplate'},
-                        # … and the older flat format, for older versions
                         WFCondition=4, WFConditionalActionString=cond_str, WFInput=cond_in))
         acts += body
         acts.append(act('is.workflow.actions.conditional', WFControlFlowMode=2, GroupingIdentifier=g))
