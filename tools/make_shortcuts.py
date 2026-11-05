@@ -117,7 +117,7 @@ def control_actions():
     return acts
 
 # ---------- "Ask Pocket Agent": type or say a request → opens Pocket Agent and runs it ----------
-APP_URL = 'https://proteinleogenisis.github.io/pocket-agent/?q='
+APP_URL = 'https://proteinleogenisis.github.io/pocket-agent/#q='
 def ask_actions():
     q = str(uuid.uuid4()).upper(); e = str(uuid.uuid4()).upper()
     url = APP_URL + '￼'
@@ -127,7 +127,28 @@ def ask_actions():
         act('is.workflow.actions.openurl', WFInput={'Value': {'string': url, 'attachmentsByRange': {f'{{{len(APP_URL)}, 1}}': {'OutputUUID': e, 'Type': 'ActionOutput', 'OutputName': 'URL Encoded Text'}}}, 'WFSerializationType': 'WFTextTokenString'}),
     ]
 
+def popup_actions():
+    # Screenshot what's on screen → read its text ON THE IPAD (Live Text) → ask → show Pocket Agent in a
+    # panel over the current app. The screenshot never leaves the iPad; only its text goes to the page,
+    # after "#", which browsers never send to any server.
+    ss, x, q, e1, e2 = (str(uuid.uuid4()).upper() for _ in range(5))
+    base = 'https://proteinleogenisis.github.io/pocket-agent/#q='
+    mid = '&ctx='
+    url = base + '\ufffc' + mid + '\ufffc'
+    return [
+        act('is.workflow.actions.takescreenshot', WFTakeScreenshotScreenshotType='Full Screen', UUID=ss),
+        act('is.workflow.actions.extracttextfromimage', WFImage=output(ss, 'Screenshot'), UUID=x),
+        act('is.workflow.actions.ask', WFAskActionPrompt='Ask Pocket Agent (it can see this screen\'s text)', WFInputType='Text', UUID=q),
+        act('is.workflow.actions.urlencode', WFInput=output_text(q, 'Provided Input'), UUID=e1),
+        act('is.workflow.actions.urlencode', WFInput=output_text(x, 'Text from Image'), UUID=e2),
+        act('is.workflow.actions.showwebpage', WFURL={'Value': {'string': url, 'attachmentsByRange': {
+            f'{{{len(base)}, 1}}': {'OutputUUID': e1, 'Type': 'ActionOutput', 'OutputName': 'URL Encoded Text'},
+            f'{{{len(base) + 1 + len(mid)}, 1}}': {'OutputUUID': e2, 'Type': 'ActionOutput', 'OutputName': 'URL Encoded Text'},
+        }}, 'WFSerializationType': 'WFTextTokenString'}),
+    ]
+
 BUILD = {
+    'Pocket Agent Popup': ('Opens Pocket Agent in a panel over your current app, with that screen\'s text as context (read on-device).', popup_actions(), 4292093695, 59446),
     'Ask Pocket Agent': ('Type or say a request — opens Pocket Agent and runs it. Add it to Siri, Back Tap or the Action button.', ask_actions(), 4292093695, 59446),
     'pa-control':       ('Lets Pocket Agent control brightness, volume, music, timers, reminders, calendar, speech, battery.', control_actions(), 4282601983, 59511),
 }

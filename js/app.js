@@ -146,6 +146,12 @@ async function send(text) {
     if (res.kind === 'meta') { await meta(res.meta, res.input); return; }
     if (res.kind === 'answer') {
       if (!live) live = addMsg('assistant', res.text || '(empty answer)'); else renderMarkdown(live, res.text);
+      if (usedScreen) {
+        // Pocket Agent can't type into another app (iPadOS forbids it): one tap copies the result to paste back.
+        const b = el('button', 'btn', '📋 Copy to paste back');
+        b.onclick = async () => { try { await navigator.clipboard.writeText(stripStats(res.text)); b.textContent = 'Copied ✓ — paste it in your app'; } catch (e) { b.textContent = 'Copy failed: ' + (e?.message || e); } };
+        live.append(b);
+      }
       const st = [fmtStats(res.stats), usedScreen && 'used screen text', res.online && `🌐 ${res.online.join(', ')}`].filter(Boolean).join(' · ');
       if (st) live.append(el('div', 'meta', st));
       remember(text, res.text, usedScreen);
@@ -163,6 +169,8 @@ async function send(text) {
     if (usedScreen && settings.autoClearScreen) clearScreen('Screen text cleared after use.');
   }
 }
+
+function stripStats(t) { const m = /```[a-z]*\n?([\s\S]*?)```/.exec(t); return (m ? m[1] : t).replace(/\n\n⚠️ Not verified[\s\S]*$/, '').trim(); }
 
 function remember(user, assistant, usedScreen, tool = false) {
   history.push({ role: 'user', content: user, ...(tool && { tool }) }, { role: 'assistant', content: assistant, ...(tool && { tool }) });
@@ -618,12 +626,23 @@ async function boot() {
   const q = new URLSearchParams(location.search);
   if (q.get('bench')) { settings.contextWindow = +(q.get('ctx') || settings.contextWindow); await loadModel(q.get('bench')); await benchmark(); }
   // End-to-end task suite (development / on-device verification): ?bench=<model>&tasks=1
-  // "Ask Pocket Agent" Shortcut / links: ?q=<request> runs it as soon as the brain is ready.
-  if (q.get('q')) {
-    const ask = q.get('q').slice(0, 2000);
+  // "Ask Pocket Agent" Shortcuts / links: #q=<request>&ctx=<screen text> (or ?q=). The part after "#" never
+  // leaves the iPad. ctx is text the Shortcut read on-device from a screenshot of the app you were in.
+  const h = new URLSearchParams(location.hash.slice(1));
+  const ctx = (h.get('ctx') || '').trim();
+  if (ctx) {
+    const lines = ctx.split(/\n/).filter((l) => l.trim());
+    screen = { text: ctx.slice(0, settings.contextWindow <= 1024 ? 1200 : 2400), lines: lines.length, ms: 0 };
+    $('screenPill').hidden = false; $('screenCount').textContent = `· ${lines.length} lines`;
+  }
+  const askText = h.get('q') || q.get('q');
+  if (askText) {
+    const ask = askText.slice(0, 2000);
     window.history.replaceState(null, '', location.pathname);
+    // First use in a new place (e.g. the Shortcuts pop-up panel has its own storage): fetch the brain now.
+    if (!llm.ready && !$('modelDot').className.includes('loading') && gpu?.ok && settings.modelId) loadModel(settings.modelId);
     const t0 = Date.now();
-    while (!llm.ready && $('modelDot').className.includes('loading') && Date.now() - t0 < 120000) await new Promise((r) => setTimeout(r, 300));
+    while (!llm.ready && $('modelDot').className.includes('loading') && Date.now() - t0 < 300000) await new Promise((r) => setTimeout(r, 300));
     window.__paAsk(ask);
   }
   if (q.get('tasks')) { const { runTasks } = await import('../tests/tasks.js'); const r = await runTasks(); addMsg('tool', `${r.tasks} tasks passed in ${r.total_s}s\n` + r.results.join('\n'), 'task suite'); }

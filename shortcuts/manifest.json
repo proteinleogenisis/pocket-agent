@@ -1,5 +1,11 @@
 [
  {
+  "name": "Pocket Agent Popup",
+  "file": "shortcuts/Pocket%20Agent%20Popup.shortcut",
+  "download": "Pocket Agent Popup.shortcut",
+  "desc": "Opens Pocket Agent in a panel over your current app, with that screen's text as context (read on-device)."
+ },
+ {
   "name": "Ask Pocket Agent",
   "file": "shortcuts/Ask%20Pocket%20Agent.shortcut",
   "download": "Ask Pocket Agent.shortcut",
