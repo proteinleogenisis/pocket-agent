@@ -3,6 +3,7 @@ import { handle, runTool, TOOLS, permissionFor, route, ROUTER_TESTS, FREEDOM } f
 import { analyzeImage, toContext, warmOCR } from './ocr.js';
 import { warmPython } from './sandbox.js';
 import { store } from './store.js';
+import { gdocs, docQuestions, contextFor, plainAnswer, parseDocCommand } from './gdocs.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -12,6 +13,8 @@ let history = store.history();          // [{role, content}] — never contains 
 let screen = null;                      // { text, lines, ms } — memory only
 let attachment = null;                  // { name, text } — memory only
 let busy = false;
+// Google OAuth client ID for proteinleogenisis.github.io (public by design — it only identifies the app).
+const GOOGLE_CLIENT_ID = '';
 
 // ---------------- Rendering ----------------
 function renderMarkdown(container, md) {
@@ -150,7 +153,11 @@ function armCopy(text) {
 }
 function copyText(t) {
   t = String(t || '');
-  if (/\n\n\*\*\d+\. /.test('\n\n' + t)) return t.replace(/\*\*/g, '').replace(/```[a-z]*\n?/g, '').replace(/\n\n⚠️ Not verified[^\n]*/g, '').trim();
+  // Several questions answered: paste just the answers, numbered ("1. …"), without the questions.
+  if (/\n\n\*\*\d+\. /.test('\n\n' + t)) return t.split(/\n\n(?=\*\*\d+\. )/).map((part) => {
+    const m = /^\*\*(\d+)\. [^\n]*\*\*\n?([\s\S]*)$/.exec(part.trim()); if (!m) return plainAnswer(part);
+    return `${m[1]}. ${plainAnswer(m[2])}`;
+  }).join('\n');
   return stripStats(t);
 }
 function finishCopy(t, live) {
@@ -184,6 +191,8 @@ async function send(text) {
   addMsg('user', text);
   setBusy(true);
   try { localStorage.setItem('pa.generating', String(Date.now())); } catch {}
+  const docCmd = appMode() === 'docs' && parseDocCommand(text);
+  if (docCmd) { try { await docsCommand(docCmd, text); } catch (e) { docsError(e); } finally { finishCopy('', null); setBusy(false); status(''); try { localStorage.removeItem('pa.generating'); } catch {} } return; }
   await ensureBrain();
   const usedScreen = !!screen;
   if (usedScreen) { markScreenAsked(); if (location.hash) window.history.replaceState(null, '', location.pathname); }
@@ -522,7 +531,7 @@ function openSettings() {
   $('autoTools').checked = settings.autoTools;
   $('internetToggle').checked = settings.internet !== false;
   $('groundingToggle').checked = settings.grounding !== false;
-  renderShortcuts();
+  renderShortcuts(); renderGoogle();
   const fr = $('freedomSelect'); fr.replaceChildren(...Object.entries(FREEDOM).map(([k, d]) => { const o = el('option', null, d); o.value = k; return o; }));
   fr.value = settings.freedom || 'balanced';
   $('prefs').value = settings.preferences;
@@ -644,6 +653,11 @@ function bind() {
     store.wipe(); settings = store.settings(); history = []; renderHistory(); $('settingsDlg').close();
   };
 
+  for (const c of document.querySelectorAll('#appChips .chip')) c.onclick = () => { setApp(c.dataset.app); $('input').focus(); };
+  $('gSignIn').onclick = () => { saveGoogleId(); try { gdocs.signIn(); } catch (e) { $('gStatus').textContent = e.message; } };
+  $('gSignOut').onclick = () => { gdocs.signOut(); renderGoogle(); };
+  $('gClientId').onchange = () => { saveGoogleId(); renderGoogle(); };
+
   document.addEventListener('keydown', (e) => {
     const mod = e.metaKey || e.ctrlKey;
     if (mod && e.shiftKey && (e.code === 'Space')) { if (popupMode) return; e.preventDefault(); document.activeElement === input ? input.blur() : input.focus(); return; }
@@ -676,9 +690,142 @@ llm.onRecover = (phase) => {
   if (phase === 'failed') { $('modelDot').className = 'dot'; $('modelLabel').textContent = 'Model not loaded'; status(''); }
 };
 
+// ---------------- Which app the pop-up is over: Google Docs or Notability ----------------
+// Shortcuts can't tell which app was in front, so it's guessed from the screen's text (a Google Doc's
+// title from your recent docs, or words only that app shows), else your last choice. Tap a chip to change.
+let detectedApp = null;
+function appMode() { return detectedApp || (() => { try { return localStorage.getItem('pa.app'); } catch { return null; } })(); }
+function setApp(a, { remember = true } = {}) {
+  detectedApp = a; if (remember) try { localStorage.setItem('pa.app', a); } catch {}
+  for (const c of document.querySelectorAll('#appChips .chip')) c.classList.toggle('on', c.dataset.app === a);
+  $('appChips').classList.toggle('ask', !a); $('appAsk').hidden = !!a;
+  const i = $('input');
+  if (popupMode) i.placeholder = a === 'docs' ? '“answer all”, “answer question 2”, “rewrite paragraph 3 …”, “undo” — or ask anything'
+    : a === 'notability' ? 'Ask about this note — answers are copied for ⌘V' : 'Pick Docs or Notability above, then ask';
+}
+const DOCS_WORDS = /\b(google docs|print layout|suggesting|normal text|docs\.google)\b/i;
+const NOTABILITY_WORDS = /\b(notability|untitled note|recordings?|subjects|dividers?)\b/i;
+async function detectApp(rawCtx) {
+  $('appChips').hidden = false;
+  let a = DOCS_WORDS.test(rawCtx) ? 'docs' : NOTABILITY_WORDS.test(rawCtx) ? 'notability' : null;
+  if (!a && gdocs.signedIn) { try { const r = await gdocs.pickDoc(rawCtx); if (r.how === 'title on screen') a = 'docs'; } catch {} }
+  setApp(a || appMode(), { remember: !!a });
+}
+
+function docsError(e) {
+  if (e?.code === 'auth' || /client ID/.test(e?.message || '')) {
+    const m = addMsg('tool', gdocs.clientId ? 'Sign in to Google once here so Pocket Agent can read and write your doc.' : 'Google Docs isn\'t connected yet (one-time setup: ⚙︎ Settings → Google Docs needs a client ID).', 'Google Docs');
+    if (gdocs.clientId) { const b = el('button', 'btn primary', 'Sign in to Google'); b.onclick = () => gdocs.signIn(); m.append(b); }
+    return;
+  }
+  if (e?.code === 'blocked') {
+    addMsg('err', `Google refused (${e.message}). If this is a school account, your school's admin blocks apps it hasn't approved — sign out (⚙︎ → Google Docs) and sign in with a personal Google account, or paste with ⌘V instead.`);
+    return;
+  }
+  addMsg('err', `Google Docs: ${e?.message || e}`);
+}
+
+let lastDoc = null;
+async function openDoc() {
+  const { doc, docs, how } = await gdocs.pickDoc(screen?.text || '');
+  lastDoc = { docs, how };
+  return gdocs.read(doc.id);
+}
+function docPicker(doc, after) {
+  const box = el('div', 'docres');
+  box.append(el('span', 'meta', `In “${doc.title}” (${lastDoc?.how || 'picked'})`));
+  if (lastDoc?.docs?.length > 1) {
+    const s = el('select'); for (const d of lastDoc.docs) { const o = el('option', null, d.name); o.value = d.id; s.append(o); }
+    s.value = doc.id; s.title = 'Wrong doc? Pick the right one, then ask again';
+    s.onchange = () => { gdocs.choose(lastDoc.docs.find((d) => d.id === s.value)); s.after(el('span', 'meta', '→ ask again')); };
+    box.append(s);
+  }
+  if (gdocs.canUndo) { const u = el('button', 'btn', '↶ Undo'); u.onclick = () => { u.disabled = true; send('undo'); }; box.append(u); }
+  after.append(box);
+}
+async function ask1(q, context, extra = '') {
+  await ensureBrain();
+  const r = await handle({ text: q + extra, llm, settings, history: [], screen: context, attachment: null,
+    ui: { status, confirm: confirmAction, inStep: true, token: () => {} } });
+  return plainAnswer(r.text ?? r.output ?? '');
+}
+
+async function docsCommand(cmd, text) {
+  if (!gdocs.signedIn) {
+    if (gdocs.clientId && gdocs.hadToken) {
+      // Signed in before: renew quietly (a quick hop to Google and back) and run this request after.
+      const h = new URLSearchParams(location.hash.slice(1)); h.set('q', text); h.set('app', 'docs');
+      window.history.replaceState(null, '', location.pathname + '#' + h); status('Renewing Google sign-in…');
+      gdocs.signIn({ silent: true }); return;
+    }
+    throw Object.assign(new Error('Sign in to Google first'), { code: 'auth' });
+  }
+  if (location.hash) window.history.replaceState(null, '', location.pathname);
+  markScreenAsked();
+  if (cmd.op === 'undo') { status('Undoing…'); addMsg('tool', await gdocs.undo(), 'Google Docs'); return; }
+  status('Reading your doc…');
+  const doc = await openDoc();
+
+  if (cmd.op === 'answer') {
+    const all = docQuestions(doc);
+    if (!all.length) { addMsg('tool', `No questions found in “${doc.title}”. Questions are lines ending in “?” or starting with Explain, Solve, Describe…`, 'Google Docs'); return; }
+    const picked = cmd.n ? [all[cmd.n - 1]].filter(Boolean) : all.filter((q) => cmd.redo || !q.answered);
+    if (!picked.length) { addMsg('tool', cmd.n ? `There are only ${all.length} questions in “${doc.title}”.` : `All ${all.length} questions in “${doc.title}” already have answers. Say “undo” to remove the last ones.`, 'Google Docs'); return; }
+    const items = [], shown = [];
+    const live = addMsg('assistant', '');
+    for (const [i, q] of picked.entries()) {
+      status(`Answering ${picked.length > 1 ? `${i + 1}/${picked.length}: ` : ''}${q.q.slice(0, 60)}`);
+      let a; try { a = await ask1(q.q, contextFor(doc, q.p), '\n(Answer it directly in 1–4 sentences, as it should be written in the document under the question. No preamble.)'); }
+      catch (e) { a = ''; shown.push(`**${q.n}. ${q.q}**\n(couldn't answer: ${e?.message || e})`); continue; }
+      if (!a) continue;
+      items.push({ after: q.p, text: a }); shown.push(`**${q.n}. ${q.q}**\n${a}`);
+      renderMarkdown(live, shown.join('\n\n'));
+    }
+    if (!items.length) { renderMarkdown(live, shown.join('\n\n') || 'No answers to insert.'); return; }
+    status('Writing into your doc…');
+    try { await gdocs.insertAnswers(doc, items); }
+    catch (e) {
+      if (/revision|precondition/i.test(e.message)) { status('The doc changed — reading it again…'); const d2 = await gdocs.read(doc.id); const map = new Map(docQuestions(d2).map((q) => [q.q, q.p])); await gdocs.insertAnswers(d2, items.map((it) => ({ ...it, after: map.get(picked.find((q) => q.p === it.after).q) })).filter((it) => it.after)); }
+      else throw e;
+    }
+    const combined = shown.join('\n\n');
+    renderMarkdown(live, combined);
+    live.append(el('div', 'copied', `✓ Wrote ${items.length} ${items.length === 1 ? 'answer' : 'answers'} into the doc, highlighted — also copied`));
+    docPicker(doc, live);
+    finishCopy(combined, null);
+    remember(text, combined, true, true);
+    return;
+  }
+
+  if (cmd.op === 'rewrite' || cmd.op === 'rewriteAnswer') {
+    let p;
+    if (cmd.op === 'rewrite') p = doc.paragraphs.filter((x) => x.text.trim() && !x.ai)[cmd.n - 1];
+    else { const q = docQuestions(doc)[cmd.n - 1]; if (q) { const i = doc.paragraphs.indexOf(q.p); p = doc.paragraphs.slice(i + 1).find((x) => x.text.trim()); if (p && !p.ai) p = null; } }
+    if (!p) { addMsg('tool', cmd.op === 'rewrite' ? `“${doc.title}” doesn't have a paragraph ${cmd.n}.` : `Question ${cmd.n} has no Pocket Agent answer under it yet — say “answer question ${cmd.n}”.`, 'Google Docs'); return; }
+    status('Rewriting…');
+    const how = cmd.how || 'Rewrite this paragraph so it reads better';
+    const out = await ask1(`${how}. Return only the new paragraph text.`, p.text);
+    if (!out) { addMsg('err', 'The brain returned nothing — try again.'); return; }
+    await gdocs.replaceParagraph(doc, p, out.replace(/\n+/g, ' '));
+    const m = addMsg('assistant', out);
+    m.append(el('div', 'copied', '✓ Replaced in the doc, highlighted'));
+    docPicker(doc, m);
+    finishCopy(out, null);
+  }
+}
+
+function saveGoogleId() { settings.gClientId = $('gClientId').value.trim(); store.saveSettings(settings); gdocs.clientId = settings.gClientId || GOOGLE_CLIENT_ID; }
+function renderGoogle() {
+  $('gClientId').value = settings.gClientId || '';
+  $('gStatus').textContent = !gdocs.clientId ? 'Needs a client ID (one-time setup).' : gdocs.signedIn ? 'Signed in ✓' : gdocs.hadToken ? 'Signed in before — renews automatically when needed.' : 'Not signed in.';
+}
+
 // ---------------- Boot ----------------
 async function boot() {
+  gdocs.clientId = settings.gClientId || GOOGLE_CLIENT_ID;
+  const g = gdocs.completeSignIn();   // back from Google's sign-in page: restores the address it left from
   bind();
+  if (g && !g.ok && !/interaction_required|login_required|consent_required/.test(g.error)) addMsg('err', `Google sign-in didn't finish (${g.error}).`);
   renderHistory();
   // If the last answer never finished, iPadOS most likely ran out of memory and reloaded the app.
   try {
@@ -751,6 +898,7 @@ async function handleIncoming(q) {
   const h = new URLSearchParams(location.hash.slice(1));
   const ctx = cleanScreen(h.get('ctx') || '');
   if (h.has('ctx')) { popupMode = true; updateCompact(); }
+  if (popupMode) { if (h.get('app')) setApp(h.get('app')); else detectApp(h.get('ctx') || ''); }
   if (ctx) {
     const { full, pages } = addScreenPage(ctx);
     const lines = full.split(/\n/).filter((l) => l.trim());
@@ -761,7 +909,7 @@ async function handleIncoming(q) {
     // Pop-up without a question: start the brain now, while you type. (The screen text stays in the
     // address until you ask, so a reload — e.g. an update — doesn't lose it.)
     if (!llm.ready && !$('modelDot').className.includes('loading') && gpu?.ok && settings.modelId) loadModel(settings.modelId);
-    const i = $('input'); i.placeholder = ctx ? 'Ask about this screen — answers are copied for ⌘V' : 'Ask anything — answers are copied for ⌘V'; i.focus();
+    $('input').focus();
     return;
   }
   const askText = h.get('q') || q.get('q');

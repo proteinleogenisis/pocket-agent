@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; worker-src 'self' blob:; connect-src 'self' blob: data: https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com https://r.jina.ai https://api.duckduckgo.com https://hn.algolia.com https://en.wikipedia.org https://en.wiktionary.org https://api.stackexchange.com https://geocoding-api.open-meteo.com https://api.open-meteo.com https://api.frankfurter.dev https://registry.npmjs.org https://pypi.org; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; worker-src 'self' blob:; connect-src 'self' blob: data: https://docs.googleapis.com https://www.googleapis.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com https://r.jina.ai https://api.duckduckgo.com https://hn.algolia.com https://en.wikipedia.org https://en.wiktionary.org https://api.stackexchange.com https://geocoding-api.open-meteo.com https://api.open-meteo.com https://api.frankfurter.dev https://registry.npmjs.org https://pypi.org; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -22,6 +22,7 @@
     <div class="brand"><span class="dot" id="modelDot"></span><span id="modelLabel">No model</span></div>
     <button id="filePill" class="pill file" hidden title="Attached file — tap to remove">📄 <span id="fileName"></span> ✕</button>
     <button id="screenPill" class="pill screen" hidden title="Screen context is ON — tap or ⌘⇧X to clear">● Screen <span id="screenCount"></span> ✕</button>
+    <div id="appChips" class="chips" hidden><span id="appAsk" class="small muted" hidden>Which app?</span><button type="button" class="chip" data-app="docs">Docs</button><button type="button" class="chip" data-app="notability">Notability</button></div>
     <div class="spacer"></div>
     <span class="pill offline" id="netPill" hidden>offline</span>
     <button class="icon" id="newChatBtn" title="New chat (⌘⇧N)" aria-label="New chat">＋</button>
@@ -70,6 +71,14 @@
     <section>
       <label class="row"><b>Internet</b> <input type="checkbox" id="internetToggle"></label>
       <p class="muted small">Web search, reading pages, weather and facts. Only your request's words are sent — never screenshots, files or notes.</p>
+    </section>
+
+    <section id="gdocsSection">
+      <h3>Google Docs</h3>
+      <p class="muted small">Lets Pocket Agent read the doc you're in and write answers into it (highlighted, with Undo). The doc's text only goes between this iPad and Google. In the ⌘⇧Space pop-up, sign in there once too — it keeps its own sign-in.</p>
+      <div class="row wrap"><button class="btn primary" id="gSignIn">Sign in to Google</button><button class="btn" id="gSignOut">Sign out</button></div>
+      <p class="muted small" id="gStatus"></p>
+      <label class="row small">Client ID <input id="gClientId" placeholder="…apps.googleusercontent.com" spellcheck="false" autocapitalize="off"></label>
     </section>
 
     <section id="shortcutSection">

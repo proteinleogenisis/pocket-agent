@@ -95,7 +95,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); 
 #fullBtn { display: none; }
 body.compact #fullBtn, body.full #fullBtn { display: inline-flex; }
 body.compact .bar { order: -2; padding: 4px 10px; font-size: 12px; border-bottom: none; background: transparent; }
-body.compact .bar > :not(.brand):not(#screenPill):not(.spacer) { display: none; }
+body.compact .bar > :not(.brand):not(#screenPill):not(.spacer):not(#appChips) { display: none; }
 body.compact #app { max-width: 720px; }
 body.compact #composer { order: -1; border-top: none; border-bottom: 1px solid var(--line); padding: 10px; }
 body.compact #status { order: 0; }
@@ -103,3 +103,10 @@ body.compact #log { order: 1; flex: 0 1 auto; max-height: 70dvh; }
 body.compact #log .old, body.compact #log .empty, body.compact #log .quiet { display: none; }
 body.compact #log .msg.user { font-size: 13px; opacity: .7; padding: 4px 10px; }
 body.compact #log .msg.assistant, body.compact #log .msg.tool { font-size: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+.chips { display: inline-flex; gap: 4px; align-items: center; }
+.chip { border: 1px solid var(--line); background: transparent; color: var(--fg); border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
+.chip.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.chips.ask .chip { border-color: var(--warn); }
+.docres { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.docres select { max-width: 60vw; }
+#gClientId { flex: 1; min-width: 0; }
