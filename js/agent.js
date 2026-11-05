@@ -300,7 +300,8 @@ export async function route(llm, text) {
 // ---------- Prompt building ----------
 export function buildMessages({ text, history, settings, screen, attachment = null, reference = null }) {
   // Prompt budget in characters (~3.5 chars per token), leaving room for the answer.
-  const budgetChars = Math.round((settings.contextWindow - answerTokens(settings)) * 3.5) - 200;
+  // ~2.5 chars per token: screen text (toolbar labels, fragments) packs far more tokens per character than prose.
+  const budgetChars = Math.round((settings.contextWindow - answerTokens(settings)) * 2.5) - 300;
   let sys = `You are Pocket Agent, a concise, private coding assistant running fully offline on the user's iPad.
 Reply in plain conversational sentences. Only write code when the user asks for code or it clearly helps;
 when you do, put it in a fenced Markdown block labelled with the language (python, javascript, …).
@@ -354,7 +355,7 @@ const CAPABILITIES = `I'm Pocket Agent — a private assistant running entirely 
 
 iPadOS doesn't let any app tap or type inside other apps, so emails and messages open ready to send — you tap Send. How much I do without asking is set by Freedom in ⚙︎ Settings. Type /help for exact commands.`;
 
-export const answerTokens = (settings) => (settings.contextWindow <= 1024 ? 384 : 768);
+export const answerTokens = (settings) => (settings.contextWindow <= 1024 ? 320 : settings.contextWindow <= 2048 ? 512 : 768);
 
 // ---------- Main pipeline ----------
 // ui: { status(text), token(text), confirm({tool, input, reason}) → Promise<bool> }
@@ -494,8 +495,18 @@ export async function handle({ text, llm, settings, history, screen, attachment 
     try { ref = await net.wikiLookup(normalize(text)); } catch { ref = null; unchecked = true; }
   }
   ui.status(screen ? 'Thinking about the screen text…' : 'Thinking…');
-  const messages = buildMessages({ text, history, settings, screen, attachment, reference: ref });
-  const { text: out, stats } = await llm.stream(messages, { onToken: ui.token, temperature: settings.temperature, maxTokens: answerTokens(settings) });
+  let messages = buildMessages({ text, history, settings, screen, attachment, reference: ref });
+  let out, stats;
+  try {
+    ({ text: out, stats } = await llm.stream(messages, { onToken: ui.token, temperature: settings.temperature, maxTokens: answerTokens(settings) }));
+  } catch (e) {
+    // Too long for the brain's working memory: retry once with half the screen/file text and no chat history.
+    if (!/context|exceed|too long|prompt.*(long|large)|window size/i.test(String(e?.message || e))) throw e;
+    ui.status('That was long — trimming and retrying…');
+    messages = buildMessages({ text, history: [], settings, screen: screen && screen.slice(0, Math.floor(screen.length / 2)),
+      attachment: attachment && { ...attachment, text: attachment.text.slice(0, 600) }, reference: ref && { ...ref, text: ref.text.slice(0, 400) } });
+    ({ text: out, stats } = await llm.stream(messages, { onToken: ui.token, temperature: settings.temperature, maxTokens: Math.min(256, answerTokens(settings)) }));
+  }
   if (ref) return { kind: 'answer', text: `${out.trim()}\n\nSource: [${ref.title} — Wikipedia](${ref.url})`, stats, online: ['Wikipedia'] };
   // Wikipedia unreachable (offline, or blocked on this network): say the answer is unverified instead of sounding sure.
   if (unchecked) return { kind: 'answer', text: `${out.trim()}\n\n⚠️ Not verified — couldn't reach Wikipedia on this network, and small on-device models often get facts wrong.`, stats };

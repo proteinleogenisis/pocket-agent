@@ -309,6 +309,8 @@ async function initModelUI() {
   if (settings.brainFallback && !settings.fallbackRechecked) {   // earlier versions could fall back by mistake
     settings.fallbackRechecked = true; settings.brainFallback = false; settings.brainBest = false; store.saveSettings(settings);
   }
+  // 2k working memory for the 1.5B brain: screen text needs the room, and it only costs ~60 MB here.
+  if (!settings.ctx2k) { settings.ctx2k = true; if (settings.contextWindow < 2048 && !settings.brainFallback) settings.contextWindow = 2048; store.saveSettings(settings); }
   const crashed = localStorage.getItem('pa.loadingModel');
   if (crashed) {
     localStorage.removeItem('pa.loadingModel');
@@ -318,7 +320,7 @@ async function initModelUI() {
     }
   }
   if (gpu.ok && !settings.brainBest && !settings.brainFallback) {
-    settings.brainBest = true; settings.contextWindow = 1024;
+    settings.brainBest = true; settings.contextWindow = 2048;
     settings.modelId = modelIdFor('Qwen2.5-Coder-1.5B-Instruct', gpu.f16 !== false); store.saveSettings(settings);
   }
   $('gpuInfo').textContent = gpu.ok
