@@ -62,8 +62,18 @@ function codeBlock(lang, code) {
   return wrap;
 }
 
+// ---------------- Compact view (pop-up and Slide Over) ----------------
+// Just the input and the latest answer at the top — no header, no history, no website around it.
+function setCompact(on) { document.body.classList.toggle('compact', !!on); }
+function updateCompact() {
+  const narrowApp = matchMedia('(display-mode: standalone)').matches && innerWidth < 600;
+  setCompact(!document.body.classList.contains('full') && (popupMode || narrowApp));
+}
+addEventListener('resize', () => updateCompact());
+
 function addMsg(kind, text, meta) {
   $('log').querySelector('.empty')?.remove();
+  if (kind === 'user') for (const c of $('log').children) c.classList.add('old');   // compact view shows only the latest exchange
   const m = el('div', `msg ${kind}`);
   if (kind === 'assistant') renderMarkdown(m, text); else m.textContent = text;
   if (meta) m.append(el('div', 'meta', meta));
@@ -332,7 +342,7 @@ function clearScreen(msg) {
   if (!screen) return;
   screen = null;
   $('screenPill').hidden = true;
-  if (msg) addMsg('tool', msg, 'screen context OFF');
+  if (msg) addMsg('tool', msg, 'screen context OFF').classList.add('quiet');
 }
 
 // ---------------- Model management ----------------
@@ -628,7 +638,7 @@ function bind() {
 
   document.addEventListener('keydown', (e) => {
     const mod = e.metaKey || e.ctrlKey;
-    if (mod && e.shiftKey && (e.code === 'Space')) { e.preventDefault(); document.activeElement === input ? input.blur() : input.focus(); return; }
+    if (mod && e.shiftKey && (e.code === 'Space')) { if (popupMode) return; e.preventDefault(); document.activeElement === input ? input.blur() : input.focus(); return; }
     if (mod && !e.shiftKey && e.key.toLowerCase() === 'k') { e.preventDefault(); input.focus(); return; }
     if (mod && e.shiftKey && e.key.toLowerCase() === 'x') { e.preventDefault(); clearScreen('Screen context cleared.'); return; }
     if (mod && e.shiftKey && e.key.toLowerCase() === 'n') { e.preventDefault(); newChat(); return; }
@@ -684,6 +694,8 @@ async function boot() {
     });
     navigator.serviceWorker.register('sw.js').then((r) => r.update()).catch(() => {});
   }
+  updateCompact();
+  $('fullBtn')?.addEventListener('click', () => { document.body.classList.toggle('full'); updateCompact(); });
   await initModelUI();
   // Warm the lightweight engines in the background on idle.
   setTimeout(() => warmOCR(), 3000);
@@ -730,7 +742,7 @@ function markScreenAsked() { try { const a = JSON.parse(localStorage.getItem('pa
 async function handleIncoming(q) {
   const h = new URLSearchParams(location.hash.slice(1));
   const ctx = cleanScreen(h.get('ctx') || '');
-  if (h.has('ctx')) popupMode = true;
+  if (h.has('ctx')) { popupMode = true; updateCompact(); }
   if (ctx) {
     const { full, pages } = addScreenPage(ctx);
     const lines = full.split(/\n/).filter((l) => l.trim());
