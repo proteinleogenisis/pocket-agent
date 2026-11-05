@@ -366,7 +366,8 @@ export function screenQuestions(screen) {
   for (let line of String(screen).split(/\n/)) {
     line = line.replace(/^\s*(?:q(?:uestion)?\s*)?\(?\d{1,2}[.):]\s*|^\s*[-•*]\s*/i, '').trim();
     if (line.length < 6 || line.length > 300) continue;
-    if (/\?\s*$/.test(line) || Q_START.test(line)) out.push(line.replace(/\s*\?*\s*$/, '?').replace(/^(write|solve|calculate|compute|find|explain|define|describe|name|list|give|convert|simplify|evaluate|translate|summarize|compare)\b(.*)\?$/i, '$1$2'));
+    const yesNo = /^(?:is|are|was|were|can|could|does|do|did|should|will|would)\b/i.test(line);
+    if (/\?\s*$/.test(line) || (Q_START.test(line) && !yesNo)) if (!out.some((q) => q.toLowerCase() === line.toLowerCase().replace(/\s*\?*\s*$/, '?'))) out.push(line.replace(/\s*\?*\s*$/, '?').replace(/^(write|solve|calculate|compute|find|explain|define|describe|name|list|give|convert|simplify|evaluate|translate|summarize|compare)\b(.*)\?$/i, '$1$2'));
   }
   return out.slice(0, 8);
 }

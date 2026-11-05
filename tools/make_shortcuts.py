@@ -151,7 +151,27 @@ def open_actions():
     # Opens the link it's given (Settings pages like prefs:root=General, which web pages can't open).
     return [act('is.workflow.actions.openurl', WFInput=INPUT_TEXT)]
 
+def test_notability_actions():
+    # TEST ONLY: what ⌘⇧Space does over Notability, but startable from the Mac with the request as input.
+    ss, x, e1, e2 = (str(uuid.uuid4()).upper() for _ in range(4))
+    base = 'https://proteinleogenisis.github.io/pocket-agent/#q='
+    mid = '&ctx='
+    url = base + '\ufffc' + mid + '\ufffc'
+    return [
+        act('is.workflow.actions.openapp', WFAppIdentifier='com.gingerlabs.Notability', WFSelectedApp={'BundleIdentifier': 'com.gingerlabs.Notability'}),
+        act('is.workflow.actions.delay', WFDelayTime=2),
+        act('is.workflow.actions.takescreenshot', WFTakeScreenshotScreenshotType='Full Screen', UUID=ss),
+        act('is.workflow.actions.extracttextfromimage', WFImage=output(ss, 'Screenshot'), UUID=x),
+        act('is.workflow.actions.urlencode', WFInput=INPUT_TEXT, UUID=e1),
+        act('is.workflow.actions.urlencode', WFInput=output_text(x, 'Text from Image'), UUID=e2),
+        act('is.workflow.actions.showwebpage', WFURL={'Value': {'string': url, 'attachmentsByRange': {
+            f'{{{len(base)}, 1}}': {'OutputUUID': e1, 'Type': 'ActionOutput', 'OutputName': 'URL Encoded Text'},
+            f'{{{len(base) + 1 + len(mid)}, 1}}': {'OutputUUID': e2, 'Type': 'ActionOutput', 'OutputName': 'URL Encoded Text'},
+        }}, 'WFSerializationType': 'WFTextTokenString'}),
+    ]
+
 BUILD = {
+    'pa-test-notability': ('Test only.', test_notability_actions(), 4282601983, 59511),
     'pa-open': ('Lets Pocket Agent open Settings pages (General, Wi-Fi, Bluetooth…).', open_actions(), 4282601983, 59511),
     'Pocket Agent Popup': ('Opens Pocket Agent in a panel over your current app, with that screen\'s text as context (read on-device).', popup_actions(), 4292093695, 59446),
     'Ask Pocket Agent': ('Type or say a request — opens Pocket Agent and runs it. Add it to Siri, Back Tap or the Action button.', ask_actions(), 4292093695, 59446),
@@ -169,6 +189,7 @@ for name, (desc, actions, color, glyph) in BUILD.items():
     os.unlink(tmp.name)
     if r.returncode or not os.path.exists(out):
         sys.exit(f'Signing {name} failed: {r.stderr.strip()}')
+    if name.startswith('pa-test'): print('signed', name); continue
     manifest.append({'name': name, 'file': f'shortcuts/{slug.replace(" ", "%20")}.shortcut', 'download': f'{slug}.shortcut', 'desc': desc})
     print('signed', name)
 json.dump(manifest, open(os.path.join(OUT, 'manifest.json'), 'w'), indent=1)
