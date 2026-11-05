@@ -311,17 +311,20 @@ async function initModelUI() {
   }
   // 2k working memory for the 1.5B brain: screen text needs the room, and it only costs ~60 MB here.
   if (!settings.ctx2k) { settings.ctx2k = true; if (settings.contextWindow < 2048 && !settings.brainFallback) settings.contextWindow = 2048; store.saveSettings(settings); }
+  // Only fall back after the 1.5B load died twice in a row: a pop-up panel closed mid-load looks the same as one crash.
   const crashed = localStorage.getItem('pa.loadingModel');
-  if (crashed) {
-    localStorage.removeItem('pa.loadingModel');
-    if (/1\.5B/.test(crashed)) {
+  let crashes = +(localStorage.getItem('pa.loadCrashes') || 0);
+  if (crashed) { localStorage.removeItem('pa.loadingModel'); crashes = /1\.5B/.test(crashed) ? crashes + 1 : 0; localStorage.setItem('pa.loadCrashes', String(crashes)); }
+  if (crashed && crashes >= 2) {
+    {
       settings.brainFallback = true; settings.modelId = modelIdFor('Qwen2.5-Coder-0.5B-Instruct', gpu.f16 !== false); store.saveSettings(settings);
       addMsg('err', 'The 1.5B brain ran out of memory on this iPad, so I switched to the 0.5B brain.');
     }
   }
-  if (gpu.ok && !settings.brainBest && !settings.brainFallback) {
-    settings.brainBest = true; settings.contextWindow = 2048;
-    settings.modelId = modelIdFor('Qwen2.5-Coder-1.5B-Instruct', gpu.f16 !== false); store.saveSettings(settings);
+  // Always the best brain unless it really didn't fit, or you picked another one under Advanced.
+  const best = modelIdFor('Qwen2.5-Coder-1.5B-Instruct', gpu.f16 !== false);
+  if (gpu.ok && !settings.brainFallback && !settings.userPickedModel && settings.modelId !== best) {
+    settings.brainBest = true; settings.contextWindow = Math.max(2048, settings.contextWindow || 0); settings.modelId = best; store.saveSettings(settings);
   }
   $('gpuInfo').textContent = gpu.ok
     ? `Runs on this iPad's GPU. ${settings.brainFallback ? 'Using 0.5B (1.5B ran out of memory).' : 'Qwen2.5-Coder 1.5B is the smartest that fits.'}`
@@ -368,7 +371,7 @@ async function loadModel(id) {
     $('modelLabel').textContent = NATIVE ? 'Qwen2.5-Coder 1.5B' : id.replace(/-q4f(16|32)_1-MLC$/, '');
     $('loadText').textContent = `Loaded in ${llm.loadSeconds.toFixed(1)}s. Runs offline from now on.`;
     requestPersist();
-    try { localStorage.removeItem('pa.loadingModel'); } catch {}
+    try { localStorage.removeItem('pa.loadingModel'); localStorage.removeItem('pa.loadCrashes'); } catch {}
   } catch (e) {
     try { localStorage.removeItem('pa.loadingModel'); } catch {}
     $('modelDot').className = 'dot'; $('modelLabel').textContent = 'Model not loaded';
@@ -541,7 +544,7 @@ function bind() {
   $('closeSettings').onclick = () => $('settingsDlg').close();
   $('settingsDlg').addEventListener('close', () => { saveSettingsFromUI(); input.focus(); });
   $('settingsDlg').addEventListener('change', saveSettingsFromUI);
-  $('loadModelBtn').onclick = () => loadModel($('modelSelect').value);
+  $('loadModelBtn').onclick = () => { const v = $('modelSelect').value; settings.userPickedModel = !/1\.5B/.test(v); store.saveSettings(settings); loadModel(v); };
   $('unloadModelBtn').onclick = async () => { llm.lastLoad = null; await llm.unload(); $('modelDot').className = 'dot'; $('modelLabel').textContent = 'No model'; $('loadText').textContent = 'Unloaded (still downloaded).'; };
   $('deleteModelBtn').onclick = async () => {
     const id = $('modelSelect').value;
@@ -660,12 +663,14 @@ async function handleIncoming(q) {
       if (reg?.installing || reg?.waiting) { status('Updating Pocket Agent — your request runs right after…'); reg.waiting?.postMessage?.('skip'); return; }
     } catch {}
     const ask = askText.slice(0, 2000);
-    window.history.replaceState(null, '', location.pathname);
     // First use in a new place (e.g. the Shortcuts pop-up panel has its own storage): fetch the brain now.
     if (!llm.ready && !$('modelDot').className.includes('loading') && gpu?.ok && settings.modelId) loadModel(settings.modelId);
     const t0 = Date.now();
     while (!llm.ready && $('modelDot').className.includes('loading') && Date.now() - t0 < 300000) await new Promise((r) => setTimeout(r, 300));
-    window.__paAsk(ask);
+    $('settingsDlg').open && $('settingsDlg').close();
+    await send(ask);
+    // Only now drop it from the address, so a reload mid-way (an update, say) runs it again instead of losing it.
+    window.history.replaceState(null, '', location.pathname);
   }
 }
 
