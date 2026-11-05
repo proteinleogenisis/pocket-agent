@@ -358,7 +358,45 @@ export const answerTokens = (settings) => (settings.contextWindow <= 1024 ? 384 
 
 // ---------- Main pipeline ----------
 // ui: { status(text), token(text), confirm({tool, input, reason}) → Promise<bool> }
+// ---------- Questions on the screen (e.g. homework in Notability) ----------
+const Q_START = /^(?:what|who|whom|whose|where|when|why|how|which|is|are|was|were|can|could|does|do|did|should|will|would|write|solve|calculate|compute|find|explain|define|describe|name|list|give|convert|simplify|evaluate|translate|summarize|compare)\b/i;
+export function screenQuestions(screen) {
+  const out = [];
+  for (let line of String(screen).split(/\n/)) {
+    line = line.replace(/^\s*(?:q(?:uestion)?\s*)?\(?\d{1,2}[.):]\s*|^\s*[-•*]\s*/i, '').trim();
+    if (line.length < 6 || line.length > 300) continue;
+    if (/\?\s*$/.test(line) || Q_START.test(line)) out.push(line.replace(/\s*\?*\s*$/, '?').replace(/^(write|solve|calculate|compute|find|explain|define|describe|name|list|give|convert|simplify|evaluate|translate|summarize|compare)\b(.*)\?$/i, '$1$2'));
+  }
+  return out.slice(0, 8);
+}
+// "answer these" / "solve it" → all; "answer question 2" / "do number 3" → that one; anything else → null.
+export function pickScreenQuestions(text, qs) {
+  if (!qs.length) return null;
+  const t = normalize(text).toLowerCase();
+  const n = /\b(?:question|number|problem|no\.?|#|q)\s*(\d{1,2})\b/.exec(t);
+  if (n && /\b(answer|solve|do|complete|finish|help|what|work)\b/.test(t)) { const i = +n[1] - 1; return qs[i] ? [qs[i]] : null; }
+  if (/^(?:please\s+)?(?:answer|solve|do|complete|finish|respond to|work out)\b(?:\s+(?:all|all of|each of|every one of))?(?:\s+(?:these|them|this|it|that|the|my|those))?(?:\s+(?:questions?|problems?|homework|worksheet|one|on (?:my|the|this) screen))*\s*(?:on (?:my|the|this) screen)?\s*(?:for me)?\s*$/.test(t)
+    || /^(?:what(?:'s| is| are) the answers?(?: to (?:this|these|it|that|them))?|answers?\??)$/.test(t)) return qs;
+  return null;
+}
+
 export async function handle({ text, llm, settings, history, screen, attachment = null, ui }) {
+  // 0. Questions on the screen: answer each one on its own (the right tool per question), then combine.
+  if (screen && !ui.inStep) {
+    const qs = pickScreenQuestions(text, screenQuestions(screen));
+    if (qs) {
+      const parts = [];
+      for (const [i, q] of qs.entries()) {
+        ui.status?.(`Answering ${qs.length > 1 ? `${i + 1}/${qs.length}: ` : ''}${q.slice(0, 60)}`);
+        let r;
+        try { r = await handle({ text: q, llm, settings, history: [], screen: null, attachment: null, ui: { ...ui, inStep: true, token: () => {} } }); }
+        catch (e) { r = { text: `(couldn't answer: ${e?.message || e})` }; }
+        const ans = String(r.text ?? r.output ?? '').trim() || '(no answer)';
+        parts.push(qs.length > 1 ? `**${i + 1}. ${q}**\n${ans}` : ans);
+      }
+      return { kind: 'answer', text: parts.join('\n\n') };
+    }
+  }
   // 1. Deterministic paths first.
   let call = parseSlash(text);
   if (call?.meta && call.meta !== 'build') return { kind: 'meta', meta: call.meta, input: call.input };
