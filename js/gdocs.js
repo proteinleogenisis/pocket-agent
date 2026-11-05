@@ -68,7 +68,7 @@ export const gdocs = {
   },
 
   async recentDocs(n = 10) {
-    if (this.viaScript) return (await this.script('recent')).map((d) => ({ id: d.id, name: d.name }));
+    if (this.viaScript) return (await this.script('recent')).map((d) => ({ id: d.id, name: d.name, kind: d.kind || 'doc' }));
     const q = encodeURIComponent("mimeType='application/vnd.google-apps.document' and trashed=false");
     const j = await this.api(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=viewedByMeTime%20desc&pageSize=${n}&fields=files(id,name,viewedByMeTime)`);
     return j.files || [];
@@ -78,7 +78,7 @@ export const gdocs = {
   // else the most recently opened one.
   async pickDoc(screenText = '') {
     const docs = await this.recentDocs();
-    if (!docs.length) throw new Error('No Google Docs found in this account.');
+    if (!docs.length) throw new Error('No Google Docs or Slides found in this account.');
     const s = String(screenText).toLowerCase();
     const byTitle = docs.filter((d) => d.name && d.name.length > 2 && s.includes(d.name.toLowerCase())).sort((a, b) => b.name.length - a.name.length)[0];
     const chosen = ls.get(DOC_KEY);
@@ -88,7 +88,7 @@ export const gdocs = {
   choose(doc) { ls.set(DOC_KEY, doc ? { id: doc.id, name: doc.name } : null); },
 
   async read(id) {
-    if (this.viaScript) { const d = await this.script('read', { id }); return { id: d.id, title: d.title, script: true, paragraphs: d.paragraphs.map((p) => ({ ...p, start: p.i, end: p.i })) }; }
+    if (this.viaScript) { const d = await this.script('read', { id }); return { id: d.id, title: d.title, kind: d.kind || 'doc', script: true, paragraphs: d.paragraphs.map((p) => ({ ...p, start: p.i, end: p.i })) }; }
     const d = await this.api(`https://docs.googleapis.com/v1/documents/${id}?fields=documentId,title,revisionId,body(content(startIndex,endIndex,paragraph(elements(textRun(content,textStyle(backgroundColor))))))`);
     return { id: d.documentId, title: d.title, revisionId: d.revisionId, paragraphs: paragraphsOf(d) };
   },
@@ -101,7 +101,7 @@ export const gdocs = {
   // items: [{ after: paragraph, text }] → each answer becomes a new highlighted paragraph right under it.
   async insertAnswers(doc, items) {
     if (doc.script) {
-      await this.script('insert', { id: doc.id, items: items.map((it) => ({ i: it.after.i, text: it.text })) });
+      await this.script('insert', { id: doc.id, items: items.map((it) => ({ i: it.after.i, text: it.text, expect: it.after.text })) });
       const texts = items.flatMap((it) => it.text.split(/\n+/).filter((l) => l.trim()));
       ls.set(UNDO_KEY, { id: doc.id, script: true, texts, n: items.length, at: Date.now() });
       return items.length;
@@ -184,7 +184,7 @@ const Q_START = /^(?:what|who|whom|whose|where|when|why|how|which|write|solve|ca
 export function docQuestions(doc) {
   const qs = [];
   doc.paragraphs.forEach((p, i) => {
-    if (p.ai) return;
+    if (p.ai || p.hdr) return;
     const line = p.text.replace(/^\s*(?:q(?:uestion)?\s*)?\(?\d{1,2}[.):]\s*|^\s*[-•*]\s*/i, '').trim();
     if (line.length < 6 || line.length > 400) return;
     if (!(/\?\s*$/.test(line) || Q_START.test(line))) return;
@@ -199,6 +199,8 @@ export function docQuestions(doc) {
 export function contextFor(doc, p, max = 1800) {
   const idx = doc.paragraphs.indexOf(p);
   const before = doc.paragraphs.slice(0, idx).filter((x) => x.text.trim() && !x.ai).map((x) => x.text);
+  // On slides, only the question's own slide is context.
+  if (doc.kind === 'slides') { const h = doc.paragraphs.slice(0, idx).map((x) => x.hdr).lastIndexOf(true); if (h >= 0) before.splice(0, doc.paragraphs.slice(0, h).filter((x) => x.text.trim() && !x.ai).length); }
   let ctx = ''; for (let i = before.length - 1; i >= 0 && ctx.length + before[i].length < max; i--) ctx = before[i] + '\n' + ctx;
   return `${doc.title}\n${ctx}`.trim();
 }
@@ -220,6 +222,6 @@ export function parseDocCommand(text) {
   if (m) return { op: 'rewriteAnswer', n: +m[1], how: `${t.split(/\s+/)[0]} this answer ${m[2].trim()}`.trim() };
   m = /\b(?:question|number|problem|no\.?|#|q)\s*(\d{1,2})\b/.exec(t);
   if (m && /\b(answer|solve|do|complete|finish|fill|write)\b/.test(t)) return { op: 'answer', n: +m[1] };
-  if (/^(?:please\s+)?(?:answer|solve|do|complete|finish|fill in|fill out|respond to|work out)\b(?:\s+(?:all|all of|each of|every one of|the rest of))?(?:\s+(?:these|them|this|it|that|the|my|those))?(?:\s+(?:questions?|problems?|homework|worksheet|doc(?:ument)?|ones?|in (?:the|my|this) doc(?:ument)?))*\s*(?:again)?\s*(?:for me)?$/.test(t)) return { op: 'answer', all: true, redo: /\bagain\b/.test(t) };
+  if (/^(?:please\s+)?(?:answer|solve|do|complete|finish|fill in|fill out|respond to|work out)\b(?:\s+(?:all|all of|each of|every one of|the rest of))?(?:\s+(?:these|them|this|it|that|the|my|those))?(?:\s+(?:questions?|problems?|homework|worksheet|doc(?:ument)?|slides?|ones?|in (?:the|my|this) (?:doc(?:ument)?|slides?|presentation)))*\s*(?:again)?\s*(?:for me)?$/.test(t)) return { op: 'answer', all: true, redo: /\bagain\b/.test(t) };
   return null;
 }

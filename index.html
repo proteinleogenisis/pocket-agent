@@ -22,7 +22,7 @@
     <div class="brand"><span class="dot" id="modelDot"></span><span id="modelLabel">No model</span></div>
     <button id="filePill" class="pill file" hidden title="Attached file — tap to remove">📄 <span id="fileName"></span> ✕</button>
     <button id="screenPill" class="pill screen" hidden title="Screen context is ON — tap or ⌘⇧X to clear">● Screen <span id="screenCount"></span> ✕</button>
-    <div id="appChips" class="chips" hidden><span id="appAsk" class="small muted" hidden>Which app?</span><button type="button" class="chip" data-app="docs">Docs</button><button type="button" class="chip" data-app="notability">Notability</button></div>
+    <div id="appChips" class="chips" hidden><span id="appAsk" class="small muted" hidden>Which app?</span><button type="button" class="chip" data-app="docs">Docs/Slides</button><button type="button" class="chip" data-app="notability">Notability</button></div>
     <div class="spacer"></div>
     <span class="pill offline" id="netPill" hidden>offline</span>
     <button class="icon" id="newChatBtn" title="New chat (⌘⇧N)" aria-label="New chat">＋</button>
@@ -74,8 +74,8 @@
     </section>
 
     <section id="gdocsSection">
-      <h3>Google Docs</h3>
-      <p class="muted small">Lets Pocket Agent read the doc you're in and write answers into it (highlighted, with Undo). The doc's text only goes between this iPad and Google. In the ⌘⇧Space pop-up, sign in there once too — it keeps its own sign-in.</p>
+      <h3>Google Docs &amp; Slides</h3>
+      <p class="muted small">Lets Pocket Agent read the doc or slides you're in and write answers into them (highlighted, with Undo). The doc's text only goes between this iPad and Google. In the ⌘⇧Space pop-up, sign in there once too — it keeps its own sign-in.</p>
       <p class="small">Setup (once): <b>Copy the script</b> → script.google.com → New project → paste → <b>Deploy → New deployment → Web app</b>, Execute as <b>Me</b>, access <b>Anyone</b> → Authorize → copy the Web app link and paste it below (or into the pop-up). Keep the link private.</p>
       <div class="row wrap"><button class="btn" id="gCopyScript">Copy the script</button><button class="btn" id="gSignOut">Disconnect</button></div>
       <label class="row small">Web app link <input id="gScript" placeholder="https://script.google.com/macros/s/…/exec" spellcheck="false" autocapitalize="off"></label>

@@ -706,7 +706,7 @@ function setApp(a, { remember = true } = {}) {
   if (popupMode) i.placeholder = a === 'docs' ? '“answer all”, “answer question 2”, “rewrite paragraph 3 …”, “undo” — or ask anything'
     : a === 'notability' ? 'Ask about this note — answers are copied for ⌘V' : 'Pick Docs or Notability above, then ask';
 }
-const DOCS_WORDS = /\b(google docs|print layout|suggesting|normal text|docs\.google)\b/i;
+const DOCS_WORDS = /\b(google docs|google slides|print layout|suggesting|normal text|docs\.google|slideshow|speaker notes|add slide|new slide)\b/i;
 const NOTABILITY_WORDS = /\b(notability|untitled note|recordings?|subjects|dividers?)\b/i;
 async function detectApp(rawCtx) {
   $('appChips').hidden = false;
@@ -736,9 +736,9 @@ async function openDoc() {
 }
 function docPicker(doc, after) {
   const box = el('div', 'docres');
-  box.append(el('span', 'meta', `In “${doc.title}” (${lastDoc?.how || 'picked'})`));
+  box.append(el('span', 'meta', `${doc.kind === 'slides' ? 'Slides' : 'Doc'}: “${doc.title}” (${lastDoc?.how || 'picked'})`));
   if (lastDoc?.docs?.length > 1) {
-    const s = el('select'); for (const d of lastDoc.docs) { const o = el('option', null, d.name); o.value = d.id; s.append(o); }
+    const s = el('select'); for (const d of lastDoc.docs) { const o = el('option', null, (d.kind === 'slides' ? '▭ ' : '') + d.name); o.value = d.id; s.append(o); }
     s.value = doc.id; s.title = 'Wrong doc? Pick the right one, then ask again';
     s.onchange = () => { gdocs.choose(lastDoc.docs.find((d) => d.id === s.value)); s.after(el('span', 'meta', '→ ask again')); };
     box.append(s);
@@ -757,7 +757,7 @@ async function connectScript(url) {
   gdocs.setScript(url); status('Checking the link…');
   try { await gdocs.testScript(); } catch (e) { gdocs.setScript(''); throw new Error(`That link didn't work: ${e?.message || e}`); }
   const docs = await gdocs.recentDocs();
-  addMsg('tool', `Google Docs connected ✓ — ${docs.length} recent docs found${docs[0] ? ` (latest: “${docs[0].name}”)` : ''}. Over a doc, say “answer all”.`, 'Google Docs');
+  addMsg('tool', `Google Docs & Slides connected ✓ — ${docs.length} recent files found${docs[0] ? ` (latest: “${docs[0].name}”)` : ''}. Over a doc, say “answer all”.`, 'Google Docs');
   setApp('docs');
 }
 
@@ -780,7 +780,7 @@ async function docsCommand(cmd, text) {
 
   if (cmd.op === 'answer') {
     const all = docQuestions(doc);
-    if (!all.length) { addMsg('tool', `No questions found in “${doc.title}”. Questions are lines ending in “?” or starting with Explain, Solve, Describe…`, 'Google Docs'); return; }
+    if (!all.length) { addMsg('tool', `No questions found in “${doc.title}”${doc.kind === 'slides' ? ' (slides)' : ''}. Questions are lines ending in “?” or starting with Explain, Solve, Describe…`, 'Google Docs'); return; }
     const picked = cmd.n ? [all[cmd.n - 1]].filter(Boolean) : all.filter((q) => cmd.redo || !q.answered);
     if (!picked.length) { addMsg('tool', cmd.n ? `There are only ${all.length} questions in “${doc.title}”.` : `All ${all.length} questions in “${doc.title}” already have answers. Say “undo” to remove the last ones.`, 'Google Docs'); return; }
     const items = [], shown = [];
@@ -797,12 +797,12 @@ async function docsCommand(cmd, text) {
     status('Writing into your doc…');
     try { await gdocs.insertAnswers(doc, items); }
     catch (e) {
-      if (/revision|precondition/i.test(e.message)) { status('The doc changed — reading it again…'); const d2 = await gdocs.read(doc.id); const map = new Map(docQuestions(d2).map((q) => [q.q, q.p])); await gdocs.insertAnswers(d2, items.map((it) => ({ ...it, after: map.get(picked.find((q) => q.p === it.after).q) })).filter((it) => it.after)); }
+      if (/revision|precondition|changed/i.test(e.message)) { status('The doc changed — reading it again…'); const d2 = await gdocs.read(doc.id); const map = new Map(docQuestions(d2).map((q) => [q.q, q.p])); await gdocs.insertAnswers(d2, items.map((it) => ({ ...it, after: map.get(picked.find((q) => q.p === it.after).q) })).filter((it) => it.after)); }
       else throw e;
     }
     const combined = shown.join('\n\n');
     renderMarkdown(live, combined);
-    live.append(el('div', 'copied', `✓ Wrote ${items.length} ${items.length === 1 ? 'answer' : 'answers'} into the doc, highlighted — also copied`));
+    live.append(el('div', 'copied', `✓ Wrote ${items.length} ${items.length === 1 ? 'answer' : 'answers'} into the ${doc.kind === 'slides' ? 'slides' : 'doc'}, highlighted — also copied`));
     docPicker(doc, live);
     finishCopy(combined, null);
     remember(text, combined, true, true);
@@ -811,7 +811,7 @@ async function docsCommand(cmd, text) {
 
   if (cmd.op === 'rewrite' || cmd.op === 'rewriteAnswer') {
     let p;
-    if (cmd.op === 'rewrite') p = doc.paragraphs.filter((x) => x.text.trim() && !x.ai)[cmd.n - 1];
+    if (cmd.op === 'rewrite') p = doc.paragraphs.filter((x) => x.text.trim() && !x.ai && !x.hdr)[cmd.n - 1];
     else { const q = docQuestions(doc)[cmd.n - 1]; if (q) { const i = doc.paragraphs.indexOf(q.p); p = doc.paragraphs.slice(i + 1).find((x) => x.text.trim()); if (p && !p.ai) p = null; } }
     if (!p) { addMsg('tool', cmd.op === 'rewrite' ? `“${doc.title}” doesn't have a paragraph ${cmd.n}.` : `Question ${cmd.n} has no Pocket Agent answer under it yet — say “answer question ${cmd.n}”.`, 'Google Docs'); return; }
     status('Rewriting…');
