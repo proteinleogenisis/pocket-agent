@@ -176,7 +176,7 @@ async function send(text) {
   try { localStorage.setItem('pa.generating', String(Date.now())); } catch {}
   await ensureBrain();
   const usedScreen = !!screen;
-  if (usedScreen) markScreenAsked();
+  if (usedScreen) { markScreenAsked(); if (location.hash) window.history.replaceState(null, '', location.pathname); }
   let live = null;
   try {
     const res = await handle({
@@ -369,6 +369,7 @@ async function initModelUI() {
       addMsg('err', 'The 1.5B brain ran out of memory on this iPad, so I switched to the 0.5B brain.');
     }
   }
+  if (!settings.pickReset) { settings.pickReset = true; settings.userPickedModel = false; store.saveSettings(settings); } // earlier button bug
   // Always the best brain unless it really didn't fit, or you picked another one under Advanced.
   const best = modelIdFor('Qwen2.5-Coder-1.5B-Instruct', gpu.f16 !== false);
   if (gpu.ok && !settings.brainFallback && !settings.userPickedModel && settings.modelId !== best) {
@@ -592,7 +593,9 @@ function bind() {
   $('closeSettings').onclick = () => $('settingsDlg').close();
   $('settingsDlg').addEventListener('close', () => { saveSettingsFromUI(); input.focus(); });
   $('settingsDlg').addEventListener('change', saveSettingsFromUI);
-  $('loadModelBtn').onclick = () => { const v = $('modelSelect').value; settings.userPickedModel = !/1\.5B/.test(v); store.saveSettings(settings); loadModel(v); };
+  // Main "Download & load" = the chosen brain (the best one unless you changed it under Advanced).
+  $('loadModelBtn').onclick = () => loadModel(settings.modelId || $('modelSelect').value);
+  $('modelSelect').addEventListener('change', () => { const v = $('modelSelect').value; settings.userPickedModel = !/1\.5B/.test(v); settings.modelId = v; store.saveSettings(settings); });
   $('unloadModelBtn').onclick = async () => { llm.lastLoad = null; await llm.unload(); $('modelDot').className = 'dot'; $('modelLabel').textContent = 'No model'; $('loadText').textContent = 'Unloaded (still downloaded).'; };
   $('deleteModelBtn').onclick = async () => {
     const id = $('modelSelect').value;
@@ -730,8 +733,8 @@ async function handleIncoming(q) {
     $('screenPill').hidden = false; $('screenCount').textContent = `· ${lines.length} lines${pages > 1 ? ` · ${pages} pages` : ''}`;
   }
   if (popupMode && !(h.get('q') || q.get('q'))) {
-    // Pop-up without a question: start the brain now, while you type.
-    window.history.replaceState(null, '', location.pathname);
+    // Pop-up without a question: start the brain now, while you type. (The screen text stays in the
+    // address until you ask, so a reload — e.g. an update — doesn't lose it.)
     if (!llm.ready && !$('modelDot').className.includes('loading') && gpu?.ok && settings.modelId) loadModel(settings.modelId);
     const i = $('input'); i.placeholder = ctx ? 'Ask about this screen — answers are copied for ⌘V' : 'Ask anything — answers are copied for ⌘V'; i.focus();
     return;
