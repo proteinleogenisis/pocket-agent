@@ -154,6 +154,18 @@ function finishCopy(t, live) {
     : el('div', 'meta', 'iPadOS didn\'t allow the automatic copy — tap 📋 Copy to paste back')));
 }
 
+// A question asked while the brain is still loading (e.g. typed right after ⌘⇧Space) waits for it
+// instead of failing with "no model". If nothing is loading yet, start it.
+async function ensureBrain() {
+  if (NATIVE || llm.ready) return;
+  const loading = () => $('modelDot').className.includes('loading');
+  if (!loading() && gpu?.ok && settings.modelId) loadModel(settings.modelId);
+  if (!loading()) return;
+  status('Loading the brain — your question runs as soon as it\'s ready…');
+  const t0 = Date.now();
+  while (!llm.ready && loading() && Date.now() - t0 < 300000) await new Promise((r) => setTimeout(r, 250));
+}
+
 async function send(text) {
   if (/^(stop|cancel)( that| it)?$/i.test(text.trim()) && store.pending().length) { store.setPending([]); addMsg('tool', 'Cancelled the remaining steps.', 'steps'); return; }
   text = text.trim();
@@ -162,6 +174,7 @@ async function send(text) {
   addMsg('user', text);
   setBusy(true);
   try { localStorage.setItem('pa.generating', String(Date.now())); } catch {}
+  await ensureBrain();
   const usedScreen = !!screen;
   if (usedScreen) markScreenAsked();
   let live = null;
