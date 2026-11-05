@@ -146,6 +146,10 @@ Object.assign(TOOLS, ACTION_TOOLS, {
     },
     run: async ({ shortcut, input, say }) => {
       if (NATIVE) { const r = await nativeCall({ op: 'device', action: shortcut, input }); return { ok: r.ok, output: r.output, error: r.ok ? undefined : r.output }; }
+      if (shortcut === 'pa-open') {
+        openURL(runShortcutURL('pa-open', input));
+        return { ok: true, output: `${say}…${(store.settings().installedShortcuts || []).includes('pa-open') ? '' : '\nIf nothing happens, add “pa-open”: ⚙︎ Settings → Set up once.'}` };
+      }
       let v = input ?? '';
       if (shortcut === 'PA Event') { try { v = JSON.parse(input); } catch {} }
       else if (v !== '' && !isNaN(Number(v))) v = Number(v);

@@ -1,5 +1,11 @@
 [
  {
+  "name": "pa-open",
+  "file": "shortcuts/pa-open.shortcut",
+  "download": "pa-open.shortcut",
+  "desc": "Lets Pocket Agent open Settings pages (General, Wi-Fi, Bluetooth\u2026)."
+ },
+ {
   "name": "Pocket Agent Popup",
   "file": "shortcuts/Pocket%20Agent%20Popup.shortcut",
   "download": "Pocket Agent Popup.shortcut",

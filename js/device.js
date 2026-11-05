@@ -4,7 +4,7 @@
 
 const enc = encodeURIComponent;
 
-export const SHORTCUT_NAMES = ["PA Brightness", "PA Volume", "PA Play Pause", "PA Next Track", "PA Timer", "PA Reminder", "PA Event", "PA Speak", "PA Battery", "PA WiFi On", "PA WiFi Off", "PA Bluetooth On", "PA Bluetooth Off"];
+export const SHORTCUT_NAMES = ["pa-open", "PA Brightness", "PA Volume", "PA Play Pause", "PA Next Track", "PA Timer", "PA Reminder", "PA Event", "PA Speak", "PA Battery", "PA WiFi On", "PA WiFi Off", "PA Bluetooth On", "PA Bluetooth Off"];
 
 export function runShortcutURL(name, text) {
   return `shortcuts://run-shortcut?name=${enc(name)}${text != null && text !== '' ? `&input=text&text=${enc(String(text))}` : ''}`;
@@ -65,9 +65,33 @@ const pct = (s) => {
 };
 const sc = (shortcut, input, say) => ({ tool: 'device', value: { shortcut, input: input == null ? '' : String(input), say } });
 
+// Settings pages. Web pages can't open these links (Safari calls them invalid), but a Shortcut can,
+// so they go through the tiny "pa-open" Shortcut.
+const SETTINGS_PAGES = {
+  general: 'General', about: 'General&path=About', 'software update': 'General&path=SOFTWARE_UPDATE_LINK', update: 'General&path=SOFTWARE_UPDATE_LINK',
+  storage: 'General&path=STORAGE_MGMT', 'ipad storage': 'General&path=STORAGE_MGMT', keyboard: 'General&path=Keyboard', keyboards: 'General&path=Keyboard',
+  'date and time': 'General&path=DATE_AND_TIME', 'date & time': 'General&path=DATE_AND_TIME', airdrop: 'General&path=AIRDROP_LINK',
+  wifi: 'WIFI', 'wi-fi': 'WIFI', 'wi fi': 'WIFI', bluetooth: 'Bluetooth', display: 'DISPLAY', 'display and brightness': 'DISPLAY', 'display & brightness': 'DISPLAY',
+  sound: 'Sounds', sounds: 'Sounds', notifications: 'NOTIFICATIONS_ID', battery: 'BATTERY_USAGE', privacy: 'Privacy', 'privacy and security': 'Privacy',
+  accessibility: 'ACCESSIBILITY', wallpaper: 'Wallpaper', siri: 'SIRI', 'screen time': 'SCREEN_TIME', 'control center': 'ControlCenter',
+  focus: 'DO_NOT_DISTURB', 'do not disturb': 'DO_NOT_DISTURB', passcode: 'PASSCODE', 'touch id': 'PASSCODE', 'airplane mode': 'AIRPLANE_MODE',
+};
+export function parseSettings(t) {
+  const s = t.toLowerCase().replace(/[?.!]+$/, '').trim();
+  if (/^(?:open|go to|show|show me|take me to|bring up|pull up|launch)?\s*(?:my\s+|the\s+)?(?:ipad\s+)?settings?(?:\s+app)?$/.test(s)) return sc('pa-open', 'prefs:root=', 'Opening Settings');
+  if (!/\bsettings?\b|\bsoftware update\b/.test(s)) return null;
+  const names = Object.keys(SETTINGS_PAGES).sort((a, b) => b.length - a.length).map((n) => n.replace(/[&]/g, '\\$&')).join('|');
+  const m = new RegExp(`\\b(${names})\\b`).exec(s.replace(/\bsettings?\b/g, ' '));
+  if (!m || !/^(?:open|go|show|take|bring|pull|launch|get|navigate|head|jump|can you|could you|please)|\bsettings?\s*(?:>|→|-)/.test(s) && !/settings?\s*$/.test(s)) return null;
+  const page = SETTINGS_PAGES[m[1]];
+  const label = m[1].replace(/\b\w/g, (c) => c.toUpperCase());
+  return sc('pa-open', `prefs:root=${page}`, `Opening Settings → ${label}`);
+}
+
 // Returns a device command or null.
 export function parseDevice(t) {
   let m;
+  const st = parseSettings(t); if (st) return st;
   if ((m = /^(?:set|turn|change|make|put|bring)?\s*(?:the\s+)?(?:screen\s+)?brightness\s+(?:to|at|up to|down to|go to|go|be)?\s*(.+)$/i.exec(t)) || (m = /^(?:turn|bring|set)\s+(?:the\s+)?(?:screen\s+)?brightness\s+(up|down)$/i.exec(t)) || (m = /^(?:make\s+(?:the\s+)?screen|screen)\s+(brighter|darker|dim|max|full)$/i.exec(t))) {
     const v = pct(m[1]); if (v != null) return sc('PA Brightness', v, `Setting brightness to ${Math.round(v * 100)}%`);
   }

@@ -304,6 +304,11 @@ async function initModelUI() {
   }
   // Brain: use the smartest model that fits (1.5B, tested on a 4 GB iPad). If loading it ever
   // crashed the tab, fall back to 0.5B for good and say so.
+  // A reload or tab close mid-load is not a crash: only a load that never reaches pagehide counts.
+  addEventListener('pagehide', () => { try { localStorage.removeItem('pa.loadingModel'); } catch {} });
+  if (settings.brainFallback && !settings.fallbackRechecked) {   // earlier versions could fall back by mistake
+    settings.fallbackRechecked = true; settings.brainFallback = false; settings.brainBest = false; store.saveSettings(settings);
+  }
   const crashed = localStorage.getItem('pa.loadingModel');
   if (crashed) {
     localStorage.removeItem('pa.loadingModel');

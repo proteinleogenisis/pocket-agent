@@ -147,7 +147,12 @@ def popup_actions():
         }}, 'WFSerializationType': 'WFTextTokenString'}),
     ]
 
+def open_actions():
+    # Opens the link it's given (Settings pages like prefs:root=General, which web pages can't open).
+    return [act('is.workflow.actions.openurl', WFInput=INPUT_TEXT)]
+
 BUILD = {
+    'pa-open': ('Lets Pocket Agent open Settings pages (General, Wi-Fi, Bluetooth…).', open_actions(), 4282601983, 59511),
     'Pocket Agent Popup': ('Opens Pocket Agent in a panel over your current app, with that screen\'s text as context (read on-device).', popup_actions(), 4292093695, 59446),
     'Ask Pocket Agent': ('Type or say a request — opens Pocket Agent and runs it. Add it to Siri, Back Tap or the Action button.', ask_actions(), 4292093695, 59446),
     'pa-control':       ('Lets Pocket Agent control brightness, volume, music, timers, reminders, calendar, speech, battery.', control_actions(), 4282601983, 59511),
