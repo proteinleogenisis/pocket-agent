@@ -109,4 +109,4 @@ body.compact #log .msg.assistant, body.compact #log .msg.tool { font-size: 16px;
 .chips.ask .chip { border-color: var(--warn); }
 .docres { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .docres select { max-width: 60vw; }
-#gClientId { flex: 1; min-width: 0; }
+#gClientId, #gScript { flex: 1; min-width: 0; }

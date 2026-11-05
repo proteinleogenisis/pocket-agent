@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; worker-src 'self' blob:; connect-src 'self' blob: data: https://docs.googleapis.com https://www.googleapis.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com https://r.jina.ai https://api.duckduckgo.com https://hn.algolia.com https://en.wikipedia.org https://en.wiktionary.org https://api.stackexchange.com https://geocoding-api.open-meteo.com https://api.open-meteo.com https://api.frankfurter.dev https://registry.npmjs.org https://pypi.org; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; worker-src 'self' blob:; connect-src 'self' blob: data: https://script.google.com https://script.googleusercontent.com https://docs.googleapis.com https://www.googleapis.com https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com https://r.jina.ai https://api.duckduckgo.com https://hn.algolia.com https://en.wikipedia.org https://en.wiktionary.org https://api.stackexchange.com https://geocoding-api.open-meteo.com https://api.open-meteo.com https://api.frankfurter.dev https://registry.npmjs.org https://pypi.org; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -76,9 +76,14 @@
     <section id="gdocsSection">
       <h3>Google Docs</h3>
       <p class="muted small">Lets Pocket Agent read the doc you're in and write answers into it (highlighted, with Undo). The doc's text only goes between this iPad and Google. In the ⌘⇧Space pop-up, sign in there once too — it keeps its own sign-in.</p>
-      <div class="row wrap"><button class="btn primary" id="gSignIn">Sign in to Google</button><button class="btn" id="gSignOut">Sign out</button></div>
+      <p class="small">Setup (once): <b>Copy the script</b> → script.google.com → New project → paste → <b>Deploy → New deployment → Web app</b>, Execute as <b>Me</b>, access <b>Anyone</b> → Authorize → copy the Web app link and paste it below (or into the pop-up). Keep the link private.</p>
+      <div class="row wrap"><button class="btn" id="gCopyScript">Copy the script</button><button class="btn" id="gSignOut">Disconnect</button></div>
+      <label class="row small">Web app link <input id="gScript" placeholder="https://script.google.com/macros/s/…/exec" spellcheck="false" autocapitalize="off"></label>
       <p class="muted small" id="gStatus"></p>
-      <label class="row small">Client ID <input id="gClientId" placeholder="…apps.googleusercontent.com" spellcheck="false" autocapitalize="off"></label>
+      <details class="small"><summary class="muted">Other way: Google client ID</summary>
+        <label class="row small">Client ID <input id="gClientId" placeholder="…apps.googleusercontent.com" spellcheck="false" autocapitalize="off"></label>
+        <button class="btn" id="gSignIn">Sign in to Google</button>
+      </details>
     </section>
 
     <section id="shortcutSection">

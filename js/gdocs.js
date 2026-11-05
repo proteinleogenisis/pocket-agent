@@ -3,18 +3,33 @@
 // stores it). The access token stays in this device's storage and lasts an hour; after that it renews
 // itself with a quick redirect if you're still signed in to Google here.
 const SCOPES = 'https://www.googleapis.com/auth/documents https://www.googleapis.com/auth/drive.metadata.readonly';
-const TOKEN_KEY = 'pa.gToken', RETURN_KEY = 'pa.gReturn', UNDO_KEY = 'pa.gUndo', DOC_KEY = 'pa.gDoc';
+const SCRIPT_KEY = 'pa.gScript', TOKEN_KEY = 'pa.gToken', RETURN_KEY = 'pa.gReturn', UNDO_KEY = 'pa.gUndo', DOC_KEY = 'pa.gDoc';
 export const HIGHLIGHT = { red: 1, green: 0.95, blue: 0.7 };            // light yellow behind AI text
 const REDIRECT = () => location.origin + location.pathname;
 
 const ls = { get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } },
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
 
+export const SCRIPT_URL = /^https:\/\/script\.google\.com\/(?:a\/[^/\s]+\/)?macros\/s\/[\w-]{20,}\/exec$/;
 export const gdocs = {
   clientId: '',
-  get signedIn() { const t = ls.get(TOKEN_KEY); return !!(t && t.exp > Date.now() + 60000); },
+  // Easiest setup: a small Apps Script in your own Google account (tools/pocket-agent-docs.gs) — no client ID.
+  get scriptUrl() { return ls.get(SCRIPT_KEY) || ''; },
+  setScript(url) { url = String(url || '').trim(); if (url && !SCRIPT_URL.test(url)) throw new Error('That isn\'t a Web app link — it should look like https://script.google.com/macros/s/…/exec'); ls.set(SCRIPT_KEY, url || null); },
+  async testScript(url = this.scriptUrl) { const r = await fetch(url, { redirect: 'follow' }); const j = await r.json(); if (j.app !== 'pocket-agent-docs') throw new Error('That link answered, but it isn\'t the Pocket Agent script.'); return true; },
+  async script(op, body = {}) {
+    const r = await fetch(this.scriptUrl, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ op, ...body }) });
+    const ct = r.headers.get('content-type') || '';
+    if (!ct.includes('json')) throw Object.assign(new Error('The script link asked for a Google sign-in — redeploy it with “Who has access: Anyone”.'), { code: 'blocked' });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error);
+    return j.result;
+  },
+  get viaScript() { return !!this.scriptUrl; },
+  get configured() { return this.viaScript || !!this.clientId; },
+  get signedIn() { if (this.viaScript) return true; const t = ls.get(TOKEN_KEY); return !!(t && t.exp > Date.now() + 60000); },
   get hadToken() { return !!ls.get(TOKEN_KEY); },
-  signOut() { ls.set(TOKEN_KEY, null); ls.set(DOC_KEY, null); },
+  signOut() { ls.set(TOKEN_KEY, null); ls.set(DOC_KEY, null); ls.set(SCRIPT_KEY, null); },
 
   // Full-page redirect to Google (pop-up windows don't work inside the Shortcuts panel). Whatever was in
   // the address (the screen text, the request) is saved and put back when Google sends you back here.
@@ -53,6 +68,7 @@ export const gdocs = {
   },
 
   async recentDocs(n = 10) {
+    if (this.viaScript) return (await this.script('recent')).map((d) => ({ id: d.id, name: d.name }));
     const q = encodeURIComponent("mimeType='application/vnd.google-apps.document' and trashed=false");
     const j = await this.api(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=viewedByMeTime%20desc&pageSize=${n}&fields=files(id,name,viewedByMeTime)`);
     return j.files || [];
@@ -72,6 +88,7 @@ export const gdocs = {
   choose(doc) { ls.set(DOC_KEY, doc ? { id: doc.id, name: doc.name } : null); },
 
   async read(id) {
+    if (this.viaScript) { const d = await this.script('read', { id }); return { id: d.id, title: d.title, script: true, paragraphs: d.paragraphs.map((p) => ({ ...p, start: p.i, end: p.i })) }; }
     const d = await this.api(`https://docs.googleapis.com/v1/documents/${id}?fields=documentId,title,revisionId,body(content(startIndex,endIndex,paragraph(elements(textRun(content,textStyle(backgroundColor))))))`);
     return { id: d.documentId, title: d.title, revisionId: d.revisionId, paragraphs: paragraphsOf(d) };
   },
@@ -83,6 +100,12 @@ export const gdocs = {
 
   // items: [{ after: paragraph, text }] → each answer becomes a new highlighted paragraph right under it.
   async insertAnswers(doc, items) {
+    if (doc.script) {
+      await this.script('insert', { id: doc.id, items: items.map((it) => ({ i: it.after.i, text: it.text })) });
+      const texts = items.flatMap((it) => it.text.split(/\n+/).filter((l) => l.trim()));
+      ls.set(UNDO_KEY, { id: doc.id, script: true, texts, n: items.length, at: Date.now() });
+      return items.length;
+    }
     const sorted = [...items].sort((a, b) => b.after.end - a.after.end);       // bottom first: indexes stay valid
     const reqs = [];
     for (const it of sorted) {
@@ -103,6 +126,11 @@ export const gdocs = {
 
   // Replace one paragraph's text (keeps it as one paragraph), highlighted. Undo puts the old text back.
   async replaceParagraph(doc, p, text) {
+    if (doc.script) {
+      const old = await this.script('replace', { id: doc.id, i: p.i, text, expect: p.text });
+      ls.set(UNDO_KEY, { id: doc.id, script: true, restore: { text, old }, n: 1, at: Date.now() });
+      return;
+    }
     const s = p.start, e = p.end - 1;                                          // keep the trailing "\n"
     const reqs = [{ deleteContentRange: { range: { startIndex: s, endIndex: e } } }, { insertText: { location: { index: s }, text } },
       { updateTextStyle: { range: { startIndex: s, endIndex: s + text.length }, textStyle: { backgroundColor: { color: { rgbColor: HIGHLIGHT } } }, fields: 'backgroundColor' } }];
@@ -113,6 +141,11 @@ export const gdocs = {
   get canUndo() { return !!ls.get(UNDO_KEY); },
   async undo() {
     const u = ls.get(UNDO_KEY); if (!u) return 'Nothing to undo.';
+    if (u.script) {
+      const n = u.restore ? await this.script('restore', { id: u.id, ...u.restore }) : await this.script('remove', { id: u.id, texts: u.texts });
+      ls.set(UNDO_KEY, null);
+      return n ? `Undone (${u.n} ${u.n === 1 ? 'change' : 'changes'} removed).` : 'The inserted text is no longer in the doc — nothing undone.';
+    }
     const doc = await this.read(u.id);
     const full = docText(doc.paragraphs);
     const reqs = [];

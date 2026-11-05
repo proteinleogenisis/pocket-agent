@@ -191,7 +191,8 @@ async function send(text) {
   addMsg('user', text);
   setBusy(true);
   try { localStorage.setItem('pa.generating', String(Date.now())); } catch {}
-  const docCmd = appMode() === 'docs' && parseDocCommand(text);
+  const pasted = /https:\/\/script\.google\.com\/(?:a\/[^/\s]+\/)?macros\/s\/[\w-]{20,}\/exec/.exec(text);
+  const docCmd = pasted ? { op: 'connect', url: pasted[0] } : appMode() === 'docs' && parseDocCommand(text);
   if (docCmd) { try { await docsCommand(docCmd, text); } catch (e) { docsError(e); } finally { finishCopy('', null); setBusy(false); status(''); try { localStorage.removeItem('pa.generating'); } catch {} } return; }
   await ensureBrain();
   const usedScreen = !!screen;
@@ -657,6 +658,8 @@ function bind() {
   $('gSignIn').onclick = () => { saveGoogleId(); try { gdocs.signIn(); } catch (e) { $('gStatus').textContent = e.message; } };
   $('gSignOut').onclick = () => { gdocs.signOut(); renderGoogle(); };
   $('gClientId').onchange = () => { saveGoogleId(); renderGoogle(); };
+  $('gScript').onchange = async () => { const v = $('gScript').value.trim(); try { if (v) { gdocs.setScript(v); await gdocs.testScript(); } else gdocs.setScript(''); renderGoogle(); } catch (e) { gdocs.setScript(''); $('gStatus').textContent = e.message; } };
+  $('gCopyScript').onclick = () => { const t = fetch('tools/pocket-agent-docs.gs').then((r) => r.text()).then((x) => new Blob([x], { type: 'text/plain' })); navigator.clipboard.write([new ClipboardItem({ 'text/plain': t })]).then(() => { $('gCopyScript').textContent = 'Copied ✓ — paste it at script.google.com'; }, (e) => { $('gStatus').textContent = 'Copy failed: ' + (e?.message || e); }); };
 
   document.addEventListener('keydown', (e) => {
     const mod = e.metaKey || e.ctrlKey;
@@ -714,7 +717,7 @@ async function detectApp(rawCtx) {
 
 function docsError(e) {
   if (e?.code === 'auth' || /client ID/.test(e?.message || '')) {
-    const m = addMsg('tool', gdocs.clientId ? 'Sign in to Google once here so Pocket Agent can read and write your doc.' : 'Google Docs isn\'t connected yet (one-time setup: ⚙︎ Settings → Google Docs needs a client ID).', 'Google Docs');
+    const m = addMsg('tool', gdocs.clientId ? 'Sign in to Google once here so Pocket Agent can read and write your doc.' : 'Google Docs isn\'t connected yet. Paste your Pocket Agent script\'s Web app link (https://script.google.com/macros/s/…/exec) here and press Return.', 'Google Docs');
     if (gdocs.clientId) { const b = el('button', 'btn primary', 'Sign in to Google'); b.onclick = () => gdocs.signIn(); m.append(b); }
     return;
   }
@@ -750,7 +753,16 @@ async function ask1(q, context, extra = '') {
   return plainAnswer(r.text ?? r.output ?? '');
 }
 
+async function connectScript(url) {
+  gdocs.setScript(url); status('Checking the link…');
+  try { await gdocs.testScript(); } catch (e) { gdocs.setScript(''); throw new Error(`That link didn't work: ${e?.message || e}`); }
+  const docs = await gdocs.recentDocs();
+  addMsg('tool', `Google Docs connected ✓ — ${docs.length} recent docs found${docs[0] ? ` (latest: “${docs[0].name}”)` : ''}. Over a doc, say “answer all”.`, 'Google Docs');
+  setApp('docs');
+}
+
 async function docsCommand(cmd, text) {
+  if (cmd.op === 'connect') return connectScript(cmd.url);
   if (!gdocs.signedIn) {
     if (gdocs.clientId && gdocs.hadToken) {
       // Signed in before: renew quietly (a quick hop to Google and back) and run this request after.
@@ -817,7 +829,8 @@ async function docsCommand(cmd, text) {
 function saveGoogleId() { settings.gClientId = $('gClientId').value.trim(); store.saveSettings(settings); gdocs.clientId = settings.gClientId || GOOGLE_CLIENT_ID; }
 function renderGoogle() {
   $('gClientId').value = settings.gClientId || '';
-  $('gStatus').textContent = !gdocs.clientId ? 'Needs a client ID (one-time setup).' : gdocs.signedIn ? 'Signed in ✓' : gdocs.hadToken ? 'Signed in before — renews automatically when needed.' : 'Not signed in.';
+  $('gScript').value = gdocs.scriptUrl;
+  $('gStatus').textContent = gdocs.viaScript ? 'Connected through your script ✓' : !gdocs.clientId ? 'Not connected — paste your script\'s Web app link above.' : gdocs.signedIn ? 'Signed in ✓' : gdocs.hadToken ? 'Signed in before — renews automatically when needed.' : 'Not signed in.';
 }
 
 // ---------------- Boot ----------------
