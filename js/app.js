@@ -192,7 +192,8 @@ async function send(text) {
   setBusy(true);
   try { localStorage.setItem('pa.generating', String(Date.now())); } catch {}
   const pasted = /https:\/\/script\.google\.com\/(?:a\/[^/\s]+\/)?macros\/s\/[\w-]{20,}\/exec/.exec(text);
-  const docCmd = pasted ? { op: 'connect', url: pasted[0] } : appMode() === 'docs' && parseDocCommand(text);
+  // Without the Google script connected, Docs/Slides work like Notability: answer from the screen, copy for ⌘V.
+  const docCmd = pasted ? { op: 'connect', url: pasted[0] } : appMode() === 'docs' && gdocs.configured && parseDocCommand(text);
   if (docCmd) { try { await docsCommand(docCmd, text); } catch (e) { docsError(e); } finally { finishCopy('', null); setBusy(false); status(''); try { localStorage.removeItem('pa.generating'); } catch {} } return; }
   await ensureBrain();
   const usedScreen = !!screen;
@@ -703,8 +704,8 @@ function setApp(a, { remember = true } = {}) {
   for (const c of document.querySelectorAll('#appChips .chip')) c.classList.toggle('on', c.dataset.app === a);
   $('appChips').classList.toggle('ask', !a); $('appAsk').hidden = !!a;
   const i = $('input');
-  if (popupMode) i.placeholder = a === 'docs' ? '“answer all”, “answer question 2”, “rewrite paragraph 3 …”, “undo” — or ask anything'
-    : a === 'notability' ? 'Ask about this note — answers are copied for ⌘V' : 'Pick Docs or Notability above, then ask';
+  if (popupMode) i.placeholder = a === 'docs' && gdocs.configured ? '“answer all”, “answer question 2”, “rewrite paragraph 3 …”, “undo” — or ask anything'
+    : a === 'notability' || a === 'docs' ? 'Ask about this screen — answers are copied for ⌘V' : 'Pick Docs or Notability above, then ask';
 }
 const DOCS_WORDS = /\b(google docs|google slides|print layout|suggesting|normal text|docs\.google|slideshow|speaker notes|add slide|new slide)\b/i;
 const NOTABILITY_WORDS = /\b(notability|untitled note|recordings?|subjects|dividers?)\b/i;
