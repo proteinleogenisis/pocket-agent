@@ -452,6 +452,11 @@ async function screenEdit(kind, text, screen, { llm, settings, ui }) {
   ];
   const { text: out, stats } = await llm.stream(messages, { onToken: ui.token, temperature: 0.2, maxTokens: kind === 'notes' || kind === 'continue' ? 320 : 260 });
   let res = cleanEdit(out, target);
+  if (kind === 'summary' && res.length > target.length * 0.7 && target.length > 200) {
+    ui.status?.('Making the summary shorter…');
+    const { text: o2 } = await llm.stream([{ role: 'system', content: 'Summarize in your own words in at most 2 short sentences. Output only the summary.' }, { role: 'user', content: target.slice(0, 2200) }], { temperature: 0.2, maxTokens: 120 });
+    res = cleanEdit(o2, target);
+  }
   // Screen text often loses the "____": if the sentence came back unchanged, ask for just the missing word, then put it in.
   if (kind === 'blank' && res.replace(/\W+/g, '').toLowerCase() === target.replace(/_+/g, '').replace(/\W+/g, '').toLowerCase()) {
     ui.status?.('Finding the missing word…');
@@ -478,7 +483,20 @@ async function answerScreenQuestion(q, screen, allQs, { llm, settings, ui }) {
     { role: 'system', content: 'Answer the question using the text from the user\'s screen (notes, a reading, a worksheet). If the screen text contains the answer, use it. Answer ONLY what the question asks, in one short plain sentence — do not copy the whole sentence from the text if it contains other details. No lists, no markdown, no steps. For math, give the final answer with at most one short step in the same sentence.' },
     { role: 'user', content: `Screen text:\n"""\n${ctx.slice(0, 2000)}\n"""\n\nQuestion: ${q}` },
   ], { temperature: 0.1, maxTokens: 120 });
-  return cleanEdit(text).replace(/\s*\n+\s*/g, ' ');
+  return trimCopied(cleanEdit(text).replace(/\s*\n+\s*/g, ' '), q, ctx);
+}
+// The model often answers by copying a whole sentence from the screen ("She hid the bike behind the garage
+// and tied a blue ribbon…"). If the answer is a copy, keep only the parts that relate to the question.
+const STOP = new Set('the a an and or of to in on at for with by from what who whom whose where when why how which did does do is are was were be been it its this that these those she he they her his their them you your my me we our'.split(' '));
+export function trimCopied(ans, q, ctx) {
+  const norm = (x) => x.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!norm(ctx).includes(norm(ans).slice(0, 60)) || ans.length < 50) return ans;
+  const keys = norm(q).split(' ').filter((w) => w.length >= 3 && !STOP.has(w)).map((w) => w.slice(0, 3));
+  const clauses = ans.replace(/[.]$/, '').split(/,\s+(?:and\s+)?|\s+and\s+(?=[a-z]+ed\b|[a-z]+s\b)/i);
+  if (clauses.length < 2) return ans;
+  const keep = clauses.filter((c) => norm(c).split(' ').some((w) => keys.some((k) => w.startsWith(k))));
+  const out = (keep.length ? keep : clauses.slice(0, 1)).join(', ');
+  return out.charAt(0).toUpperCase() + out.slice(1) + '.';
 }
 
 // ---------- Main pipeline ----------
