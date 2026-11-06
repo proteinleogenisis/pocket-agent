@@ -708,7 +708,7 @@ function setApp(a, { remember = true } = {}) {
   if (popupMode) i.placeholder = a === 'docs' && gdocs.configured ? '“answer all”, “answer question 2”, “rewrite paragraph 3 …”, “undo” — or ask anything'
     : a === 'notability' || a === 'docs' ? 'Ask about this screen — answers are copied for ⌘V' : 'Pick Docs or Notability above, then ask';
 }
-const DOCS_WORDS = /\b(google docs|google slides|print layout|suggesting|normal text|docs\.google|slideshow|speaker notes|add slide|new slide)\b/i;
+const DOCS_WORDS = /\.(docx|pptx|doc|ppt)\b|\b(google docs|google slides|print layout|suggesting|normal text|docs\.google|slideshow|speaker notes|add slide|new slide)\b/i;
 const NOTABILITY_WORDS = /\b(notability|untitled note|recordings?|subjects|dividers?)\b/i;
 async function detectApp(rawCtx) {
   $('appChips').hidden = false;
