@@ -452,6 +452,14 @@ async function screenEdit(kind, text, screen, { llm, settings, ui }) {
   ];
   const { text: out, stats } = await llm.stream(messages, { onToken: ui.token, temperature: 0.2, maxTokens: kind === 'notes' || kind === 'continue' ? 320 : 260 });
   let res = cleanEdit(out, target);
+  // Screen text often loses the "____": if the sentence came back unchanged, ask for just the missing word, then put it in.
+  if (kind === 'blank' && res.replace(/\W+/g, '').toLowerCase() === target.replace(/_+/g, '').replace(/\W+/g, '').toLowerCase()) {
+    ui.status?.('Finding the missing word…');
+    const w = (await oneLine(llm, 'A word or number is missing from this sentence (a blank). Reply with ONLY the missing word or number.', target, 12)).replace(/[."]+$/, '').trim();
+    // Put it back where the blank was: before a unit ("at ___ degrees"); otherwise just the word, to paste into the blank.
+    const m = /\b(at|is|was|are|of|about|has|have|than|by|in|to)\s+(?=(degrees|percent|years|times|meters|km|miles|kg|grams|people|days|hours|minutes|°)\b)/i.exec(target);
+    if (w) res = m ? target.slice(0, m.index + m[0].length) + w + ' ' + target.slice(m.index + m[0].length) : w;
+  }
   if (kind === 'addbullet') {
     // Exactly as many bullets as asked for ("add 3 bullets" → 3), default 1.
     const m = /\badd (\d+|one|two|three|four|five|six)\b/i.exec(text); const n = m ? (NUMS[m[1].toLowerCase()] || +m[1]) : 1;
@@ -467,7 +475,7 @@ async function answerScreenQuestion(q, screen, allQs, { llm, settings, ui }) {
   const others = new Set(allQs.filter((x) => x !== q).map((x) => x.toLowerCase().replace(/\?$/, '')));
   const ctx = String(screen).split('\n').filter((l) => { const k = l.replace(/^\s*(?:q(?:uestion)?\s*)?\(?\d{1,2}[.):]\s*/i, '').trim().toLowerCase().replace(/\?$/, ''); return !others.has(k); }).join('\n');
   const { text } = await llm.stream([
-    { role: 'system', content: 'Answer the question using the text from the user\'s screen (notes, a reading, a worksheet). If the screen text contains the answer, use it. Reply in ONE or TWO short plain sentences — no lists, no markdown, no steps. For math, give the final answer with at most one short step in the same sentence.' },
+    { role: 'system', content: 'Answer the question using the text from the user\'s screen (notes, a reading, a worksheet). If the screen text contains the answer, use it. Answer ONLY what the question asks, in one short plain sentence — do not copy the whole sentence from the text if it contains other details. No lists, no markdown, no steps. For math, give the final answer with at most one short step in the same sentence.' },
     { role: 'user', content: `Screen text:\n"""\n${ctx.slice(0, 2000)}\n"""\n\nQuestion: ${q}` },
   ], { temperature: 0.1, maxTokens: 120 });
   return cleanEdit(text).replace(/\s*\n+\s*/g, ' ');
