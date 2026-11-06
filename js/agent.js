@@ -405,8 +405,37 @@ export function cleanEdit(t, target = '') {
   s = s.replace(/\*\*(.+?)\*\*/g, '$1').replace(/^\s*[-*]\s+/gm, '• ').replace(/^["“](.*)["”]$/s, '$1').trim();
   return s;
 }
+const NUMS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+async function oneLine(llm, system, user, maxTokens = 60) {
+  const { text } = await llm.stream([{ role: 'system', content: system }, { role: 'user', content: user }], { temperature: 0.2, maxTokens });
+  return cleanEdit(text).replace(/^\s*[•\-*]\s*/, '').replace(/\s*\n+\s*/g, ' ').trim();
+}
 async function screenEdit(kind, text, screen, { llm, settings, ui }) {
   const target = editTarget(kind, screen);
+  const lines = String(screen).split('\n').map((l) => l.trim()).filter(Boolean);
+  const bullets = lines.filter(isBullet).map((l) => l.replace(/^\s*([•●▪◦‣\-*–]|\d{1,2}[.)])\s+/, ''));
+  const title = lines.find((l) => !isBullet(l)) || '';
+  // A small model writes far better notes / shorter bullets one bullet at a time than all at once.
+  if (kind === 'notes' && bullets.length >= 2 && bullets.length <= 8) {
+    const parts = [`This slide is about ${title.replace(/[.:]$/, '').toLowerCase() || 'these points'}.`];
+    for (const [i, b] of bullets.entries()) {
+      ui.status?.(`Writing speaker notes ${i + 1}/${bullets.length}…`);
+      parts.push(await oneLine(llm, 'Write ONE spoken sentence for a presentation. Plain text only.', `Slide topic: ${title}\nExplain this point in one sentence, naming it: ${b}`));
+    }
+    return { kind: 'answer', text: parts.join(' ') };
+  }
+  if (kind === 'shorten' && bullets.length >= 2 && bullets.length <= 10) {
+    const out = [];
+    for (const [i, b] of bullets.entries()) {
+      ui.status?.(`Shortening ${i + 1}/${bullets.length}…`);
+      const words = b.split(/\s+/).length;
+      if (words <= 5) { out.push('• ' + b); continue; }
+      let r = await oneLine(llm, 'Shorten the phrase to at most 6 words. Keep its meaning. Output only the short phrase.', b, 30);
+      r = r.replace(/[.]$/, '');
+      out.push('• ' + (r && r.split(/\s+/).length < words ? r : b));
+    }
+    return { kind: 'answer', text: out.join('\n') };
+  }
   const task = EDIT_TASK[kind] || `${text.trim().replace(/[.?!]*$/, '')}. Output only the new text.`;
   ui.status?.(kind === 'notes' ? 'Writing speaker notes…' : kind === 'summary' ? 'Summarizing…' : 'Editing the text…');
   const messages = [
@@ -414,7 +443,14 @@ async function screenEdit(kind, text, screen, { llm, settings, ui }) {
     { role: 'user', content: `Text:\n"""\n${target.slice(0, 2200)}\n"""\n\nTask: ${kind === 'summary' ? text.trim() + '. Stay faithful to the text — do not change any fact. Output only the summary.' : task}` },
   ];
   const { text: out, stats } = await llm.stream(messages, { onToken: ui.token, temperature: 0.2, maxTokens: kind === 'notes' || kind === 'continue' ? 320 : 260 });
-  return { kind: 'answer', text: cleanEdit(out, target), stats };
+  let res = cleanEdit(out, target);
+  if (kind === 'addbullet') {
+    // Exactly as many bullets as asked for ("add 3 bullets" → 3), default 1.
+    const m = /\badd (\d+|one|two|three|four|five|six)\b/i.exec(text); const n = m ? (NUMS[m[1].toLowerCase()] || +m[1]) : 1;
+    const bl = res.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => '• ' + l.replace(/^\s*([•●▪◦‣\-*–]|\d{1,2}[.)])\s*/, ''));
+    res = bl.slice(0, n).join('\n');
+  }
+  return { kind: 'answer', text: res, stats };
 }
 // One question from the screen, answered with the rest of the screen as context (the passage it's about).
 async function answerScreenQuestion(q, screen, allQs, { llm, settings, ui }) {
