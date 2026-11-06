@@ -526,9 +526,21 @@ export function trimCopied(ans, q, ctx) {
 // ui: { status(text), token(text), confirm({tool, input, reason}) → Promise<bool> }
 // ---------- Questions on the screen (e.g. homework in Notability) ----------
 const Q_START = /^(?:what|who|whom|whose|where|when|why|how|which|is|are|was|were|can|could|does|do|did|should|will|would|write|solve|calculate|compute|find|explain|define|describe|name|list|give|convert|simplify|evaluate|translate|summarize|compare)\b/i;
+// Text read from a screenshot wraps long lines: "Which planet is known as the Red" / "Planet?". Join them back.
+export function joinWrapped(screen) {
+  const out = [];
+  for (const raw of String(screen).split(/\n/)) {
+    const l = raw.trim(); if (!l) continue;
+    const prev = out[out.length - 1];
+    const startsNew = /^\s*(?:q(?:uestion)?\s*)?\(?(?:\d{1,2}|[a-h])[.):]\s+|^\s*[•●▪◦‣\-*–]\s+/i.test(l);
+    if (prev && !startsNew && !/[.?!:;]$/.test(prev) && (/^[a-z(]/.test(l) || (/[?.]$/.test(l) && l.split(/\s+/).length <= 4)) && /^\s*(?:q(?:uestion)?\s*)?\(?(?:\d{1,2}|[a-h])[.):]\s+|\b(what|who|which|where|when|why|how|is|are|does|do|did|explain|describe)\b/i.test(prev)) out[out.length - 1] = prev + ' ' + l;
+    else out.push(l);
+  }
+  return out.join('\n');
+}
 export function screenQuestions(screen) {
   const out = [];
-  for (let line of String(screen).split(/\n/)) {
+  for (let line of joinWrapped(screen).split(/\n/)) {
     line = line.replace(/^\s*(?:q(?:uestion)?\s*)?\(?(?:\d{1,2}|[a-h])[.):]\s+|^\s*[-•*]\s*/i, '').trim();
     if (line.length < 6 || line.length > 300) continue;
     const yesNo = /^(?:is|are|was|were|can|could|does|do|did|should|will|would)\b/i.test(line);
@@ -550,7 +562,13 @@ export function pickScreenQuestions(text, qs) {
 export async function handle({ text, llm, settings, history, screen, attachment = null, ui }) {
   // 0. Questions on the screen: answer each one on its own (the right tool per question), then combine.
   if (screen && !ui.inStep) {
-    const qs = pickScreenQuestions(text, screenQuestions(screen));
+    const found = screenQuestions(screen);
+    const qs = pickScreenQuestions(text, found);
+    // "Answer the questions" but there are none on screen: say so (and what works) instead of asking for them.
+    if (!found.length && /^(?:please\s+)?(?:answer|solve|do|complete|finish)\b.*\b(questions?|problems?|quiz|worksheet|these|them|this|it)\b/i.test(normalize(text).trim()) && text.trim().split(/\s+/).length <= 8) {
+      const bullets = String(screen).split('\n').filter((l) => /^\s*[•●▪◦‣\-*–]\s+/.test(l)).length;
+      return { kind: 'error', text: `I don't see any questions on this screen${bullets ? ` (it shows a title and ${bullets} bullet points)` : ''}. Scroll so the questions are visible and press ⌘⇧Space again — or ask “explain this”, “summarize this”${bullets ? ', “write speaker notes”, “add a bullet”' : ''}.` };
+    }
     if (qs) {
       const parts = [];
       const allQs = screenQuestions(screen);
