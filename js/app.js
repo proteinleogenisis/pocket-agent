@@ -161,7 +161,6 @@ function copyText(t) {
   return stripStats(t);
 }
 function finishCopy(t, live) {
-  if (t) window.__paLast = { text: t, copy: copyText(t), at: Date.now() };     // what ⌘V would paste (tests read this)
   const c = pendingCopy; pendingCopy = null;
   if (!c || c.done) return;
   c.done = true;
