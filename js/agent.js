@@ -417,7 +417,7 @@ async function screenEdit(kind, text, screen, { llm, settings, ui }) {
   const title = lines.find((l) => !isBullet(l)) || '';
   // A small model writes far better notes / shorter bullets one bullet at a time than all at once.
   if (kind === 'notes' && bullets.length >= 2 && bullets.length <= 8) {
-    const parts = [`This slide is about ${title.replace(/[.:]$/, '').toLowerCase() || 'these points'}.`];
+    const parts = [`This slide is about ${title.replace(/[.:]$/, '') || 'these points'}.`];
     for (const [i, b] of bullets.entries()) {
       ui.status?.(`Writing speaker notes ${i + 1}/${bullets.length}…`);
       parts.push(await oneLine(llm, 'Write ONE spoken sentence for a presentation. Plain text only.', `Slide topic: ${title}\nExplain this point in one sentence, naming it: ${b}`));
