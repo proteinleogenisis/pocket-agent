@@ -156,7 +156,7 @@ function copyText(t) {
   // Several questions answered: paste just the answers, numbered ("1. …"), without the questions.
   if (/\n\n\*\*\d+\. /.test('\n\n' + t)) return t.split(/\n\n(?=\*\*\d+\. )/).map((part) => {
     const m = /^\*\*(\d+)\. [^\n]*\*\*\n?([\s\S]*)$/.exec(part.trim()); if (!m) return plainAnswer(part);
-    return `${m[1]}. ${plainAnswer(m[2])}`;
+    return `${m[1]}. ${plainAnswer(m[2]).replace(/^\s*\d+[.)]\s+/gm, '').replace(/\s*\n+\s*/g, ' ')}`;
   }).join('\n');
   return stripStats(t);
 }
@@ -202,7 +202,7 @@ async function send(text) {
   let live = null;
   try {
     const res = await handle({
-      text, llm, settings, history, screen: screen?.text, attachment, ui: {
+      text, llm, settings, history: popupMode && screen ? [] : history, screen: screen?.text, attachment, ui: {
         status,
         token: (t) => { if (!live) live = addMsg('assistant', ''); renderMarkdown(live, t); live.scrollIntoView({ block: 'end' }); },
         confirm: confirmAction,
@@ -884,7 +884,7 @@ boot();
 // leaves the iPad. ctx is text the Shortcut read on-device from a screenshot of the app you were in.
 // Runs on open and whenever Safari reuses this tab with a new #… (that doesn't reload the page).
 // Text read from a screenshot includes app chrome (toolbar labels, font names, single letters): drop it.
-const CHROME = /^(caption|helvetica.*|arial.*|times.*|font|size|\d{1,2}|[<>→←•|·⊕⊖ⓘ®©+\-]+.*\d*|en\b.*|b\s*i\s*u.*|biv.*|edit|done|cancel|share|undo|redo|search.*|\d{1,2}:\d{2}\s*(am|pm)?.*|\d{1,3}%|wed|mon|tue|thu|fri|sat|sun)$/i;
+const CHROME = /^(caption|helvetica.*|arial.*|times.*|calibri.*|font|size|\d{1,2}|[<>→←•|·⊕⊖ⓘ®©+\-\s]+\d*|<\s*\w+|en\b.*|b\s*i\s*u.*|biv.*|edit|done|cancel|share|undo|redo|search.*|\d{1,2}:\d{2}\s*(am|pm)?.*|\d{1,3}%|wed|mon|tue|thu|fri|sat|sun|file\s+edit\b.*|normal text|heading \d|title|subtitle|google (docs|slides)|notability|present|slideshow|slide|insert|format|tools|view|comments?|print layout|editing|suggesting|name:?|date:?)$/i;
 export function cleanScreen(text) {
   const out = [];
   for (let l of String(text).split(/\n/)) {
