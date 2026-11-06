@@ -376,16 +376,16 @@ const isBullet = (l) => /^\s*([•●▪◦‣\-*–]|\d{1,2}[.)])\s+/.test(l);
 const isTitle = (l) => !isBullet(l) && l.split(/\s+/).length <= 7 && !/[.!?:;]$/.test(l.trim());
 // Which part of the screen the edit is about: the bullets, or the body paragraph(s) — not the title.
 const HEADING_FOR = { fix: /grammar|spelling|proofread|correct|fix/i, blank: /blank|fill/i, rewrite: /re-?write|rephrase|formal|paraphrase|improve/i,
-  shorten: /shorten|shorter|concise/i, summary: /summar/i, translate: /translat/i, explain: /explain/i, continue: /continue|finish|conclusion/i };
+  shorten: /shorten|shorter|concise/i, summary: /summar|reading|passage|story|article/i, translate: /translat/i, explain: /explain/i, continue: /continue|finish|conclusion/i };
 function editTarget(kind, screen) {
   const lines = String(screen).split('\n').map((l) => l.trim()).filter(Boolean);
   // A worksheet section heading that names the task ("Fix the grammar", "Fill in the blank"): use only what's under it.
   const hi = HEADING_FOR[kind] ? lines.findIndex((l) => isTitle(l) && HEADING_FOR[kind].test(l)) : -1;
   if (hi >= 0) {
-    const sec = []; for (const l of lines.slice(hi + 1)) { if (isTitle(l) && sec.length && /[.!?]$/.test(sec[sec.length - 1])) break; sec.push(l); }
+    const sec = []; for (const l of lines.slice(hi + 1)) { if ((isTitle(l) || /^\s*(?:q(?:uestion)?\s*)?\(?(?:\d{1,2}|[a-h])[.):]\s+/i.test(l)) && sec.length && /[.!?]$/.test(sec[sec.length - 1])) break; sec.push(l); }
     if (sec.length) return sec.join(' ').replace(/\s+/g, ' ');
   }
-  if (kind === 'notes' || kind === 'addbullet' || kind === 'summary' || kind === 'continue') return lines.join('\n');
+  if (kind === 'notes' || kind === 'addbullet' || kind === 'continue') return lines.join('\n');
   const bullets = lines.filter(isBullet);
   if (bullets.length >= 2 && kind !== 'blank') return bullets.join('\n');
   if (kind === 'blank') { const b = lines.filter((l) => /_{2,}|\.{4,}|\[\s*\]|\(\s*\)/.test(l)); if (b.length) return b.join('\n'); }
