@@ -469,6 +469,11 @@ async function screenEdit(kind, text, screen, { llm, settings, ui }) {
     // Exactly as many bullets as asked for ("add 3 bullets" → 3), default 1.
     const m = /\badd (\d+|one|two|three|four|five|six)\b/i.exec(text); const n = m ? (NUMS[m[1].toLowerCase()] || +m[1]) : 1;
     const bl = res.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => '• ' + l.replace(/^\s*([•●▪◦‣\-*–]|\d{1,2}[.)])\s*/, ''));
+    for (let k = 0; bl.length < n && k < n; k++) {
+      ui.status?.(`Adding bullet ${bl.length + 1}/${n}…`);
+      const one = await oneLine(llm, 'Write ONE new bullet point (2 to 6 words) that fits this slide and is not already on it. Output only the bullet text.', `${target}\n${bl.join('\n')}`, 20);
+      if (one && !bl.some((x) => x.toLowerCase().includes(one.toLowerCase()))) bl.push('• ' + one.replace(/[.]$/, ''));
+    }
     res = bl.slice(0, n).join('\n');
   }
   return { kind: 'answer', text: res, stats };

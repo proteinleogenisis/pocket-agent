@@ -885,10 +885,13 @@ boot();
 // Runs on open and whenever Safari reuses this tab with a new #… (that doesn't reload the page).
 // Text read from a screenshot includes app chrome (toolbar labels, font names, single letters): drop it.
 const CHROME = /^(caption|helvetica.*|arial.*|times.*|calibri.*|font|size|\d{1,2}|[<>→←•|·⊕⊖ⓘ®©+\-\s]+\d*|<\s*\w+|en\b.*|b\s*i\s*u.*|biv.*|edit|done|cancel|share|undo|redo|search.*|\d{1,2}:\d{2}\s*(am|pm)?.*|\d{1,3}%|wed|mon|tue|thu|fri|sat|sun|file\s+edit\b.*|normal text|heading \d|title|subtitle|google (docs|slides)|notability|present|slideshow|slide|insert|format|tools|view|comments?|print layout|editing|suggesting|name:?|date:?)$/i;
+// The iPad's status bar ("• Files 6:54 PM Thu Nov 5"), back buttons ("< test-deck.pptx") and zoom ("= 100% 4").
+const STATUS = /\b\d{1,2}:\d{2}\s*(am|pm)\b.*\b(mon|tue|wed|thu|fri|sat|sun)\b|\b(mon|tue|wed|thu|fri|sat|sun)\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{1,2}\b/i;
 export function cleanScreen(text) {
   const out = [];
   for (let l of String(text).split(/\n/)) {
     l = l.replace(/\s+/g, ' ').trim();
+    if (STATUS.test(l) || /^[<‹]\s*\S/.test(l) || /^[=≡☰]?\s*\d{1,3}\s?%(\s+\S{1,3})*$/.test(l) || /^\S+\.(docx?|pptx?|pdf|key|pages|xlsx?)$/i.test(l)) continue;
     if (l.length < 3 || CHROME.test(l) || !/[a-z0-9]{2}/i.test(l)) continue;
     if (out[out.length - 1] !== l) out.push(l);
   }
