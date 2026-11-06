@@ -428,7 +428,9 @@ async function screenEdit(kind, text, screen, { llm, settings, ui }) {
     const parts = [`This slide is about ${title.replace(/[.:]$/, '') || 'these points'}.`];
     for (const [i, b] of bullets.entries()) {
       ui.status?.(`Writing speaker notes ${i + 1}/${bullets.length}…`);
-      parts.push(await oneLine(llm, 'Write ONE spoken sentence for a presentation. Plain text only.', `Slide topic: ${title}\nExplain this point in one sentence, naming it: ${b}`));
+      let line = await oneLine(llm, 'Write ONE spoken sentence for a presentation. Plain text only. The sentence must contain the exact words of the point.', `Slide topic: ${title}\nExplain this point in one sentence, naming it: ${b}`);
+      if (!line.toLowerCase().includes(b.toLowerCase())) line = `${b}: ${line.charAt(0).toLowerCase() + line.slice(1)}`;
+      parts.push(line);
     }
     return { kind: 'answer', text: parts.join(' ') };
   }
@@ -479,7 +481,23 @@ async function screenEdit(kind, text, screen, { llm, settings, ui }) {
   return { kind: 'answer', text: res, stats };
 }
 // One question from the screen, answered with the rest of the screen as context (the passage it's about).
+// "Solve 3x + 7 = 22" → exact answer by code (the small model gets algebra wrong): any linear equation in one letter.
+export function solveLinear(q) {
+  const m = /(?:solve|find|what is)?\s*(?:for\s+([a-z])\s*[:,]?\s*)?([0-9a-z+\-*/().\s^]*=[0-9a-z+\-*/().\s^]*)/i.exec(q.replace(/[−–]/g, '-').replace(/[×·]/g, '*'));
+  if (!m) return null;
+  const eq = m[2].trim().replace(/\s+/g, ''); const vars = [...new Set(eq.match(/[a-z]/gi) || [])];
+  if (vars.length !== 1 || /\^/.test(eq)) return null;
+  const v = vars[0]; const [L, R] = eq.split('=');
+  if (!L || !R) return null;
+  const sub = (side, x) => side.replace(/(\d|\))\(/g, '$1*(').replace(new RegExp(`(\\d|\\))${v}`, 'g'), `$1*${v}`).replace(new RegExp(`${v}(\\d|\\()`, 'g'), `${v}*$1`).replace(new RegExp(v, 'g'), `(${x})`);
+  const f = (x) => { try { const r = calculate(`(${sub(L, x)})-(${sub(R, x)})`); return typeof r === 'number' ? r : NaN; } catch { return NaN; } };
+  const f0 = f(0), f1 = f(1), f2 = f(2);
+  if (![f0, f1, f2].every(Number.isFinite) || Math.abs((f2 - f1) - (f1 - f0)) > 1e-9 || f1 === f0) return null;   // not linear
+  const x = -f0 / (f1 - f0); const r = Math.round(x * 1e6) / 1e6;
+  return `${v} = ${r}`;
+}
 async function answerScreenQuestion(q, screen, allQs, { llm, settings, ui }) {
+  if (/=/.test(q)) { const lin = solveLinear(q); if (lin) return lin; }
   const expr = mathFromWords(q.replace(/\?$/, ''));
   if (expr) { const r = await runTool({ tool: 'calculate', input: expr }, { settings, screen: null, ui }); if (r.ok) return r.text; }
   const others = new Set(allQs.filter((x) => x !== q).map((x) => x.toLowerCase().replace(/\?$/, '')));
