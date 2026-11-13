@@ -835,7 +835,22 @@ function renderGoogle() {
 }
 
 // ---------------- Boot ----------------
+// iPad keyboard attached: focusing the box must not call up the on-screen keyboard (iPadOS 26 often
+// does). inputmode="none" keeps it away while hardware keys still type. A finger or Pencil tap on the
+// box brings the on-screen keyboard back for that tap; it goes away again when the box loses focus.
+function hardwareKeyboardFirst() {
+  const i = $('input');
+  i.setAttribute('inputmode', 'none');
+  i.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' || !i.hasAttribute('inputmode')) return;
+    i.removeAttribute('inputmode');
+    if (document.activeElement === i) i.blur();   // the tap focuses it again, now with the keyboard
+  });
+  i.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== i) i.setAttribute('inputmode', 'none'); }, 0));
+}
+
 async function boot() {
+  hardwareKeyboardFirst();
   gdocs.clientId = settings.gClientId || GOOGLE_CLIENT_ID;
   const g = gdocs.completeSignIn();   // back from Google's sign-in page: restores the address it left from
   bind();
