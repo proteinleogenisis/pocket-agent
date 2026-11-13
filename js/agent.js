@@ -298,14 +298,15 @@ export async function route(llm, text) {
 }
 
 // ---------- Prompt building ----------
+// The small brain was fine-tuned with exactly this prompt (tools/train/), so keep them in sync.
+export const SYSTEM_PROMPT = `You are Pocket Agent, a private homework helper running offline on the user's iPad.
+Give the answer first, in plain words. Then add at most 2-3 short sentences or steps if they help.
+For math, show the key steps briefly and end with the final answer. Never make up facts; if unsure, say so.`;
 export function buildMessages({ text, history, settings, screen, attachment = null, reference = null }) {
   // Prompt budget in characters (~3.5 chars per token), leaving room for the answer.
   // ~2.5 chars per token: screen text (toolbar labels, fragments) packs far more tokens per character than prose.
   const budgetChars = Math.round((settings.contextWindow - answerTokens(settings)) * 2.5) - 300;
-  let sys = `You are Pocket Agent, a concise, private coding assistant running fully offline on the user's iPad.
-Reply in plain conversational sentences. Only write code when the user asks for code or it clearly helps;
-when you do, put it in a fenced Markdown block labelled with the language (python, javascript, …).
-Keep answers short. You cannot browse the web or see the screen directly. Never claim to have done something you didn't.`;
+  let sys = SYSTEM_PROMPT;
   if (settings.preferences?.trim()) sys += `\nUser preferences (saved by the user):\n${settings.preferences.trim().slice(0, 600)}`;
   if (screen) {
     // Screen text goes in the user's message, right next to the request: small models connect "this text"
@@ -496,8 +497,63 @@ export function solveLinear(q) {
   const x = -f0 / (f1 - f0); const r = Math.round(x * 1e6) / 1e6;
   return `${v} = ${r}`;
 }
+// Exact answers by code for the Algebra 2 problems the small model gets wrong: quadratics (real or
+// complex roots) and 2×2 linear systems. Returns a short worked answer, or null if it isn't one of those.
+const gcd = (a, b) => { a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a || 1; };
+const frac = (n, d) => { if (d < 0) { n = -n; d = -d; } const g = gcd(n, d); n /= g; d /= g; return d === 1 ? `${n}` : `${n}/${d}`; };
+const isInt = (x) => Math.abs(x - Math.round(x)) < 1e-9;
+function evalSide(side, vals) {
+  let e = side;
+  for (const [v, x] of Object.entries(vals)) {
+    e = e.replace(new RegExp(`(\\d|\\))${v}`, 'g'), `$1*${v}`).replace(new RegExp(`${v}(\\d|\\()`, 'g'), `${v}*$1`).replace(new RegExp(v, 'g'), `(${x})`);
+  }
+  e = e.replace(/(\d|\))\(/g, '$1*(');
+  try { const r = calculate(e); return typeof r === 'number' ? r : NaN; } catch { return NaN; }
+}
+// Words ("Solve", "and", "the system") become ";" separators, leaving only the math.
+const clean = (q) => q.replace(/[−–]/g, '-').replace(/[×·]/g, '*').replace(/²/g, '^2').replace(/[a-z]{2,}/gi, ';').replace(/\s+/g, '');
+export function solveQuadratic(q) {
+  const m = /([0-9a-z+\-*/().^]*\^2[0-9a-z+\-*/().^]*=[0-9a-z+\-*/().^]*)/i.exec(clean(q));
+  if (!m) return null;
+  const vars = [...new Set(m[1].match(/[a-z]/gi) || [])]; if (vars.length !== 1) return null;
+  const v = vars[0]; const [L, R] = m[1].split('='); if (!L || !R) return null;
+  const f = (x) => evalSide(L, { [v]: x }) - evalSide(R, { [v]: x });
+  const y = [0, 1, 2, 3].map(f); if (!y.every(Number.isFinite)) return null;
+  const c = y[0], a = (y[2] - 2 * y[1] + y[0]) / 2, b = y[1] - y[0] - a;
+  if (Math.abs(y[3] - (9 * a + 3 * b + c)) > 1e-6 || Math.abs(a) < 1e-12 || ![a, b, c].every(isInt)) return null;
+  const D = b * b - 4 * a * c, A = Math.round(a), B = Math.round(b);
+  const head = `a = ${A}, b = ${B}, c = ${Math.round(c)}; discriminant b² − 4ac = ${D}.`;
+  if (D === 0) return `${v} = ${frac(-B, 2 * A)} (one repeated root). ${head}`;
+  const r = Math.sqrt(Math.abs(D));
+  if (D > 0 && isInt(r)) {
+    const roots = [-B - Math.round(r), -B + Math.round(r)].sort((m1, m2) => m1 / (2 * A) - m2 / (2 * A)).map((t) => frac(t, 2 * A));
+    return `${v} = ${roots[0]} or ${v} = ${roots[1]}. ${head}`;
+  }
+  let k = 1, n = Math.abs(D); for (let i = Math.floor(Math.sqrt(n)); i > 1; i--) if (n % (i * i) === 0) { k = i; n /= i * i; break; }
+  const g = gcd(gcd(B, k), 2 * A); let nb = -B / g, nk = k / g, den = 2 * A / g; if (den < 0) { nb = -nb; den = -den; }
+  const rad = `${nk > 1 ? nk : ''}${D < 0 ? 'i' : ''}${n > 1 ? '√' + n : ''}`;   // 2i, i√3, 2√5
+  const top = nb ? `${nb} ± ${rad}` : `±${rad}`;
+  return `${v} = ${den === 1 ? top : `(${top})/${den}`}${D < 0 ? ' (complex roots)' : ''}. ${head} Quadratic formula: ${v} = (−b ± √(b² − 4ac))/(2a).`;
+}
+export function solveSystem(q) {
+  const eqs = clean(q).split(/[,;:\n]/).filter((e) => /=/.test(e));
+  if (eqs.length !== 2) return null;
+  const vars = [...new Set(eqs.join('').replace(/=/g, '').match(/[a-z]/gi) || [])]; if (vars.length !== 2) return null;
+  const [u, w] = vars.sort();
+  const row = (e) => { const [L, R] = e.split('='); const f = (x, y) => evalSide(L, { [u]: x, [w]: y }) - evalSide(R, { [u]: x, [w]: y }); const c = f(0, 0); return [f(1, 0) - c, f(0, 1) - c, -c, f(2, 3) - (2 * (f(1, 0) - c) + 3 * (f(0, 1) - c) + c)]; };
+  const [p, r] = eqs.map(row); if (![...p, ...r].every(Number.isFinite) || Math.abs(p[3]) > 1e-9 || Math.abs(r[3]) > 1e-9) return null;
+  const det = p[0] * r[1] - p[1] * r[0];
+  if (Math.abs(det) < 1e-12) return 'No single solution: the two lines are parallel (no solution) or the same line (infinitely many).';
+  const x = (p[2] * r[1] - p[1] * r[2]) / det, y = (p[0] * r[2] - p[2] * r[0]) / det;
+  const show = (t) => (isInt(t) ? `${Math.round(t)}` : isInt(t * det) ? frac(Math.round(t * det), Math.round(det)) : `${Math.round(t * 1e4) / 1e4}`);
+  return `${u} = ${show(x)}, ${w} = ${show(y)}. Check: both equations hold with these values.`;
+}
+export function solveExact(q) {
+  if (!/=/.test(q)) return null;
+  return solveSystem(q) || solveQuadratic(q) || solveLinear(q);
+}
 async function answerScreenQuestion(q, screen, allQs, { llm, settings, ui }) {
-  if (/=/.test(q)) { const lin = solveLinear(q); if (lin) return lin; }
+  if (/=/.test(q)) { const ex = solveExact(q); if (ex) return ex; }
   const expr = mathFromWords(q.replace(/\?$/, ''));
   if (expr) { const r = await runTool({ tool: 'calculate', input: expr }, { settings, screen: null, ui }); if (r.ok) return r.text; }
   const others = new Set(allQs.filter((x) => x !== q).map((x) => x.toLowerCase().replace(/\?$/, '')));
@@ -552,8 +608,14 @@ export function screenQuestions(screen) {
 export function pickScreenQuestions(text, qs) {
   if (!qs.length) return null;
   const t = normalize(text).toLowerCase();
-  const n = /\b(?:question|number|problem|no\.?|#|q)\s*(\d{1,2})\b/.exec(t);
-  if (n && /\b(answer|solve|do|complete|finish|help|what|work)\b/.test(t)) { const i = +n[1] - 1; return qs[i] ? [qs[i]] : null; }
+  // "question 2", "questions 1 and 3", "numbers 2-4", "#1, 2, 5"
+  const n = /(?:\b(?:questions?|numbers?|problems?|no\.?|q)|#)\s*(\d{1,2}(?:\s*(?:,|and|&|-|–|to|through)\s*\d{1,2})*)\b/.exec(t);
+  if (n && /\b(answer|solve|do|complete|finish|help|what|work)\b/.test(t)) {
+    const want = [];
+    for (const m of n[1].matchAll(/(\d{1,2})(?:\s*(?:-|–|to|through)\s*(\d{1,2}))?/g)) for (let k = +m[1]; k <= +(m[2] || m[1]) && k < +m[1] + 10; k++) if (!want.includes(k)) want.push(k);
+    const pick = want.map((k) => qs[k - 1]).filter(Boolean);
+    return pick.length ? pick : null;
+  }
   if (/^(?:please\s+)?(?:answer|solve|do|complete|finish|respond to|work out)\b(?:\s+(?:all|all of|each of|every one of))?(?:\s+(?:these|them|this|it|that|the|my|those))?(?:\s+(?:questions?|problems?|homework|worksheet|one|on (?:my|the|this) screen))*\s*(?:on (?:my|the|this) screen)?\s*(?:for me)?\s*$/.test(t)
     || /^(?:what(?:'s| is| are) the answers?(?: to (?:this|these|it|that|them))?|answers?\??)$/.test(t)) return qs;
   return null;
@@ -636,6 +698,7 @@ export async function handle({ text, llm, settings, history, screen, attachment 
       call = a;
     }
   }
+  if (!call && !screen) { const ex = solveExact(text); if (ex) return { kind: 'answer', text: ex }; }
   if (!call) { const expr = mathFromWords(text); if (expr) call = { tool: 'calculate', input: expr }; }
   if (!call && !screen) call = parseTransform(text);
   if (!call) {
