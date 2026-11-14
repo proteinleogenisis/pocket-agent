@@ -172,6 +172,7 @@ async function ensureBrain() {
 async function send(text) {
   if (/^(stop|cancel)( that| it)?$/i.test(text.trim()) && store.pending().length) { store.setPending([]); addMsg('tool', 'Cancelled the remaining steps.', 'steps'); return; }
   text = text.trim();
+  if (!text && popupMode && screen) text = 'answer the questions'; // Return with an empty box in the pop-up = answer what's on screen
   if (!text || busy) return;
   $('input').value = ''; autosize(); store.saveDraft('');
   addMsg('user', text);

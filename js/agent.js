@@ -552,17 +552,39 @@ export function solveExact(q) {
   if (!/=/.test(q)) return null;
   return solveSystem(q) || solveQuadratic(q) || solveLinear(q);
 }
-async function answerScreenQuestion(q, screen, allQs, { llm, settings, ui }) {
-  if (/=/.test(q)) { const ex = solveExact(q); if (ex) return ex; }
+// Multiple choice: lead with the letter and the option text ("B. 12"), whatever way the model phrased it.
+export function formatChoice(ans, opts) {
+  const a = String(ans).trim();
+  if (!opts?.length) return a;
+  const L = /^(?:(?:[Tt]he )?(?:correct )?(?:[Aa]nswer is|[Aa]nswer:)\s*)?\(?([A-H])\)?(?:[.):,]|\s*$)/.exec(a);
+  let hit = L && opts.find((o) => o.L === L[1]);
+  if (!hit) {
+    const low = a.toLowerCase();
+    const found = opts.filter((o) => o.text.length && new RegExp(`(?:^|[^a-z0-9])${o.text.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:$|[^a-z0-9])`).test(low));
+    hit = found.sort((x, y) => y.text.length - x.text.length)[0];
+  }
+  return hit ? `${hit.L}. ${hit.text}` : a;
+}
+const numSet = (t) => (String(t).match(/-?\d+(?:\.\d+)?/g) || []).map(Number).sort((x, y) => x - y).join(',');
+// An exact result ("x = 4. Check: …") → the option holding the same value(s), if any.
+function optionFor(result, opts) {
+  const want = numSet(String(result).split(/check:/i)[0]);
+  const hit = want && opts.find((o) => numSet(o.text) === want);
+  return hit ? `${hit.L}. ${hit.text}` : null;
+}
+async function answerScreenQuestion(fullQ, screen, allQs, { llm, settings, ui }) {
+  const { stem: q, opts } = parseChoice(fullQ);
+  if (/=/.test(q)) { const ex = solveExact(q); if (ex) { if (!opts.length) return ex; const o = optionFor(ex, opts); if (o) return o; } }
   const expr = mathFromWords(q.replace(/\?$/, ''));
-  if (expr) { const r = await runTool({ tool: 'calculate', input: expr }, { settings, screen: null, ui }); if (r.ok) return r.text; }
-  const others = new Set(allQs.filter((x) => x !== q).map((x) => x.toLowerCase().replace(/\?$/, '')));
+  if (expr) { const r = await runTool({ tool: 'calculate', input: expr }, { settings, screen: null, ui }); if (r.ok) { if (!opts.length) return r.text; const o = optionFor(r.text, opts); if (o) return o; } }
+  const others = new Set(allQs.filter((x) => x !== fullQ).map((x) => x.split('\n')[0].toLowerCase().replace(/\?$/, '')));
   const ctx = String(screen).split('\n').filter((l) => { const k = l.replace(/^\s*(?:q(?:uestion)?\s*)?\(?\d{1,2}[.):]\s*/i, '').trim().toLowerCase().replace(/\?$/, ''); return !others.has(k); }).join('\n');
   const { text } = await llm.stream([
     { role: 'system', content: 'Answer the question using the text from the user\'s screen (notes, a reading, a worksheet). If the screen text contains the answer, use it. Answer ONLY what the question asks, in one short plain sentence — do not copy the whole sentence from the text if it contains other details. No lists, no markdown, no steps. For math, give the final answer with at most one short step in the same sentence.' },
-    { role: 'user', content: `Screen text:\n"""\n${ctx.slice(0, 2000)}\n"""\n\nQuestion: ${q}` },
-  ], { temperature: 0.1, maxTokens: 120 });
-  return trimCopied(cleanEdit(text).replace(/\s*\n+\s*/g, ' '), q, ctx);
+    { role: 'user', content: `Screen text:\n"""\n${ctx.slice(0, 2000)}\n"""\n\nQuestion: ${fullQ}` },
+  ], { temperature: 0.1, maxTokens: opts.length ? 160 : 120 });
+  const ans = cleanEdit(text).replace(/\s*\n+\s*/g, ' ');
+  return opts.length ? formatChoice(ans, opts) : trimCopied(ans, q, ctx);
 }
 // The model often answers by copying a whole sentence from the screen ("She hid the bike behind the garage
 // and tied a blue ribbon…"). If the answer is a copy, keep only the parts that relate to the question.
@@ -582,6 +604,60 @@ export function trimCopied(ans, q, ctx) {
 // ui: { status(text), token(text), confirm({tool, input, reason}) → Promise<bool> }
 // ---------- Questions on the screen (e.g. homework in Notability) ----------
 const Q_START = /^(?:what|who|whom|whose|where|when|why|how|which|is|are|was|were|can|could|does|do|did|should|will|would|write|solve|calculate|compute|find|explain|define|describe|name|list|give|convert|simplify|evaluate|translate|summarize|compare)\b/i;
+// Task verbs: "Solve …", "Factor …", "Circle the noun …" — things to answer that don't end in "?".
+const TASK_VERBS = 'solve|simplify|factor|evaluate|find|graph|plot|explain|describe|compare|contrast|identify|define|calculate|compute|write|name|list|choose|circle|underline|correct|fix|give|convert|translate|summarize|state|determine|complete|fill|match|rewrite|revise|expand|select|round|estimate|sketch|draw|label|predict|analyze|discuss|tell|show|justify|prove|classify|add|subtract|multiply|divide|differentiate|integrate|use';
+const TASK_RE = new RegExp(`^(?:${TASK_VERBS})\\b`, 'i');
+const WH_RE = /^(?:what|who|whom|whose|where|when|why|how|which)\b/i;
+const AUX_RE = /^(?:is|are|was|were|do|does|did|can|could|will|would|should|has|have|had|many|much|of)$/i;
+const BLANK_RE = /_{2,}|\(\s*blank\s*\)|\[\s*blank\s*\]|\[\s{2,}\]|\.{5,}/i;
+const TF_RE = /\btrue\s*(?:or|\/|-)\s*false\b|\bT\s*\/\s*F\b|\(\s*T\s*(?:or|\/)\s*F\s*\)/i;
+const NAME_DATE = /^(?:name|date|class|period|teacher|student|score|grade|per|due|hour|room)\s*[:_.\-]|\bname\b.*(?:_{2,}|:).*\bdate\b/i;
+const NOTE_HEAD = /^(?:directions?|instructions?|note|notes|hint|tip|remember|example|ex\.?|reminder|objective|goal|learning target|word bank|vocabulary|key terms?|source|read)\b\s*[:.\-]/i;
+const LBL_NUM = /^\s*(?:_+\s*)?(?:q(?:uestion)?\.?\s*)?\(?(\d{1,2})[.):]\s+/i;
+const LBL_LET = /^\s*\(?([A-Ha-h])[.):]\s+/;
+const LBL_BUL = /^\s*[-•●▪◦‣*–]\s+/;
+const wordsOf = (s) => s.split(/\s+/).filter(Boolean);
+const isMath = (s) => /\d|\b[a-z]\b/i.test(s) && /\d/.test(s) && /[=+\-−*/^<>≤≥√²³]/.test(s) && !/[a-z]{4,}/i.test(s);
+const parseLine = (raw) => {
+  let m, kind = null, key = '', text = raw.trim();
+  if ((m = LBL_NUM.exec(text))) { kind = 'num'; key = m[1]; text = text.slice(m[0].length); }
+  else if ((m = LBL_LET.exec(text))) { kind = 'let'; key = m[1]; text = text.slice(m[0].length); }
+  else if ((m = LBL_BUL.exec(text))) { kind = 'bul'; text = text.slice(m[0].length); }
+  return { kind, key, text: text.trim(), raw: raw.trim() };
+};
+// "What is 5 + 7? A. 10 B. 12 C. 13" or a line that only holds options: split into stem + options.
+function splitInline(text) {
+  const m = /(?:^|\s)\(?([Aa])[.)]\s+\S/.exec(text);
+  if (!m) return null;
+  const at = m.index + (m[0].startsWith(' ') ? 1 : 0), head = text.slice(0, at).trim(), rest = text.slice(at);
+  const parts = rest.split(/\s+(?=\(?[A-Ha-h][.)]\s)/).map((p) => LBL_LET.exec(p) ? { L: LBL_LET.exec(p)[1].toUpperCase(), text: p.replace(LBL_LET, '').trim() } : null);
+  if (parts.length < 2 || parts.some((p) => !p || !p.text)) return null;
+  return { stem: head, opts: parts };
+}
+// Consecutive A/B/C… lines that follow a question are its answer choices — unless they are sub-questions.
+function takeOptions(items, i) {
+  const inl0 = items[i] ? splitInline(items[i].raw) : null;
+  if (inl0 && !inl0.stem) return { opts: inl0.opts, next: i + 1 };
+  const opts = []; let last = '';
+  let j = i;
+  for (; j < items.length; j++) {
+    const it = items[j];
+    if (it.kind !== 'let' || !it.text || /\?\s*$/.test(it.text) || wordsOf(it.text).length > 14) break;
+    if (WH_RE.test(it.text) || TASK_RE.test(it.text) && wordsOf(it.text).length > 3) break;
+    const L = it.key.toUpperCase();
+    if (opts.length ? L <= last : L !== 'A') break;
+    opts.push({ L, text: it.text }); last = L;
+  }
+  if (opts.length >= 2) return { opts, next: j };
+  return null;
+}
+const choiceText = (stem, opts) => (opts?.length ? `${stem}\n${opts.map((o) => `${o.L}. ${o.text}`).join('\n')}` : stem);
+// Split a detected question into { stem, opts } (opts is [] unless it is multiple choice).
+export function parseChoice(q) {
+  const [stem, ...rest] = String(q).split('\n');
+  const opts = rest.map((l) => /^([A-H])\.\s+(.*)$/.exec(l)).filter(Boolean).map((m) => ({ L: m[1], text: m[2] }));
+  return { stem, opts };
+}
 // Text read from a screenshot wraps long lines: "Which planet is known as the Red" / "Planet?". Join them back.
 export function joinWrapped(screen) {
   const out = [];
@@ -594,30 +670,81 @@ export function joinWrapped(screen) {
   }
   return out.join('\n');
 }
+// Everything on the screen that needs an answer: "?" questions, tasks (Solve/Simplify/Explain…), fill-in-the-blanks,
+// true/false items and multiple choice (the A–D options travel with the question, after a newline).
 export function screenQuestions(screen) {
-  const out = [];
-  for (let line of joinWrapped(screen).split(/\n/)) {
-    line = line.replace(/^\s*(?:q(?:uestion)?\s*)?\(?(?:\d{1,2}|[a-h])[.):]\s+|^\s*[-•*]\s*/i, '').trim();
-    if (line.length < 6 || line.length > 300) continue;
-    const yesNo = /^(?:is|are|was|were|can|could|does|do|did|should|will|would)\b/i.test(line);
-    if (/\?\s*$/.test(line) || (Q_START.test(line) && !yesNo)) if (!out.some((q) => q.toLowerCase() === line.toLowerCase().replace(/\s*\?*\s*$/, '?'))) out.push(line.replace(/\s*\?*\s*$/, '?').replace(/^(write|solve|calculate|compute|find|explain|define|describe|name|list|give|convert|simplify|evaluate|translate|summarize|compare)\b(.*)\?$/i, '$1$2'));
+  const items = joinWrapped(screen).split(/\n/).map(parseLine);
+  const out = [], seen = new Set();
+  let mode = null; // { type: 'tf' } or { type: 'task', verb } set by a heading like "True or False" / "Solve each equation."
+  const push = (stem, opts) => {
+    const q = choiceText(stem, opts), k = q.toLowerCase();
+    if (!seen.has(k)) { seen.add(k); out.push(q); }
+  };
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i]; let text = it.text;
+    if (text.length < 3) continue;
+    const labeled = it.kind === 'num' || it.kind === 'let';
+    const nextIsSub = items[i + 1] && items[i + 1].kind && isMath(items[i + 1].text);
+    // Headings / noise.
+    if (NAME_DATE.test(text) || /^(?:page\s*)?\d+(?:\s*(?:of|\/)\s*\d+)?$/i.test(text) || /^[-–—\s]*\d+[-–—\s]*$/.test(text)) continue;
+    const stripped = text.replace(/^(?:directions?|instructions?)\s*[:.\-]\s*/i, '');
+    const wordsNoPart = wordsOf(stripped);
+    if (!labeled && TF_RE.test(stripped) && wordsNoPart.length <= 8 && !/[.?]$/.test(stripped) || /^(?:part|section)\b[^?]*\b(?:true\s*(?:or|\/)\s*false)\b/i.test(stripped) && wordsNoPart.length <= 10) { mode = { type: 'tf' }; continue; }
+    if (/^(?:part|section)\b/i.test(text) && wordsNoPart.length <= 8) { mode = null; continue; }
+    // "Solve each equation." followed by numbered/lettered expressions: each expression is one task.
+    const dir = new RegExp(`^(${TASK_VERBS})\\b[^?]*\\b(?:each|every|all|following|these|below|equations?|expressions?|problems?)\\b`, 'i').exec(stripped);
+    if (dir && (!labeled || nextIsSub) && !/\d\s*[=+*/^]|[=]\s*\d/.test(stripped)) {
+      mode = { type: 'task', verb: dir[1][0].toUpperCase() + dir[1].slice(1).toLowerCase() };
+      if (nextIsSub) continue;
+      if (!labeled && it.kind !== 'bul') { push(stripped.replace(/\s*\?+\s*$/, '')); continue; }
+    }
+    if (!it.kind && NOTE_HEAD.test(text)) continue;
+    // Items under a heading.
+    if (mode?.type === 'task' && (it.kind === 'num' || it.kind === 'let') && isMath(text)) { push(`${mode.verb} ${text.replace(/[:.]\s*$/, '')}`); continue; }
+    if (mode?.type === 'tf' && it.kind === 'num' && !/\?\s*$/.test(text)) { push(TF_RE.test(text) ? text : `True or false: ${text}`); continue; }
+    if (mode && !it.kind && !isMath(text)) mode = null;
+    // Inline options on the question line itself.
+    let opts = null, stem = text;
+    const inl = splitInline(text);
+    if (inl && inl.stem) { stem = inl.stem; opts = inl.opts; }
+    else if (inl && !inl.stem) continue; // a line of options with no question above it
+    const wc = wordsOf(stem).length;
+    let q = null;
+    if (stem.length < 6 || stem.length > 300) { /* too short or too long */ }
+    else if (BLANK_RE.test(stem) && stem.replace(new RegExp(BLANK_RE.source, 'gi'), ' ').split(/\s+/).filter(Boolean).length >= 3) q = stem;
+    else if (TF_RE.test(stem) && wordsOf(stem.replace(TF_RE, '')).length >= 4 && !/^(?:part|section)\b/i.test(stem)) q = stem;
+    else if (/\?\s*$/.test(stem)) q = stem.replace(/\s*\?+\s*$/, '?');
+    else if (WH_RE.test(stem) && !/[.!]$/.test(stem) && ((it.kind === 'num' || it.kind === 'let') || (wc >= 5 && AUX_RE.test(wordsOf(stem)[1] || '') ) || (wc >= 6 && AUX_RE.test(wordsOf(stem)[2] || '')))) q = stem.replace(/\s*\?*\s*$/, '?');
+    else if (TASK_RE.test(stem) && wc >= 2) {
+      const signal = labeled || /\d|\bwhy\b|\bhow\b|\bwhat\b|\bwhich\b|\bfollowing\b|\bsentence|\bpassage|\bparagraph|\bstory|\bpoem|\bbelow\b|\byour\b|\bexplain/i.test(stem) && it.kind !== 'bul' || /:\s*$/.test(stem) && it.kind !== 'bul';
+      if (signal && !(it.kind === 'bul')) q = stem.replace(/\s*\?+\s*$/, '');
+      // "Solve:" / "Simplify" with the expression on the next line.
+      if (q && /:?\s*$/.test(q) && !/\d/.test(q) && items[i + 1] && !items[i + 1].kind && isMath(items[i + 1].text)) { q = q.replace(/[:.]?\s*$/, '') + ' ' + items[i + 1].text; i++; }
+    }
+    if (!q && it.kind === 'num' && stem.length >= 6) { const t = takeOptions(items, i + 1); if (t && !/[.!]$/.test(stem)) q = stem; }
+    if (!q) continue;
+    if (!opts) { const t = takeOptions(items, i + 1); if (t) { opts = t.opts; i = t.next - 1; } }
+    push(q, opts);
   }
-  return out.slice(0, 8);
+  return out.slice(0, 15);
 }
-// "answer these" / "solve it" → all; "answer question 2" / "do number 3" → that one; anything else → null.
+// Vague requests ("help", "answers", "do this", "?", empty): the user means the questions on the screen.
+const VAGUE = /^(?:(?:please|pls|hey|ok|okay|can you|could you|will you|just|now)\s+)*(?:(?:i )?(?:need|want) )?(?:help(?: me)?(?: (?:out|with|on))?(?: (?:this|it|that|these|them|all|the (?:questions?|homework|worksheet|problems?|page)|my (?:homework|worksheet|questions?|work)|this (?:question|problem|homework|worksheet|page)|these (?:questions?|problems?)))?|(?:what(?:'s|s| is| are)|whats) (?:the )?(?:correct |right )?(?:answers?|solutions?)(?: (?:to|for) (?:this|these|it|that|them|all of them|everything))?|(?:give|show|get|gimme) (?:me )?(?:the )?(?:answers?|solutions?)(?: (?:to|for) (?:this|these|it|that|them))?|(?:the )?(?:answers?|solutions?)|answer|solve|do|go|(?:do|solve|answer|finish|complete|get) (?:this|it|that|these|them|all|everything|all of (?:it|them|these)|this one)|(?:do|answer|solve) (?:my )?(?:homework|worksheet)|answer (?:this|these) (?:question|problem|questions|problems))[\s?!.]*$/;
+// "answer these" / "solve it" → all; "answer question 2" / "do number 3" → that one; vague → all; anything else → null.
 export function pickScreenQuestions(text, qs) {
   if (!qs.length) return null;
-  const t = normalize(text).toLowerCase();
+  const t = normalize(text).toLowerCase().trim();
+  if (/^[\s?!.]*$/.test(t)) return qs;
   // "question 2", "questions 1 and 3", "numbers 2-4", "#1, 2, 5"
   const n = /(?:\b(?:questions?|numbers?|problems?|no\.?|q)|#)\s*(\d{1,2}(?:\s*(?:,|and|&|-|–|to|through)\s*\d{1,2})*)\b/.exec(t);
-  if (n && /\b(answer|solve|do|complete|finish|help|what|work)\b/.test(t)) {
+  if (n && (/\b(answer|solve|do|complete|finish|help|what|work)\b/.test(t) || !t.replace(n[0], '').replace(/[\s?!.]/g, ''))) {
     const want = [];
     for (const m of n[1].matchAll(/(\d{1,2})(?:\s*(?:-|–|to|through)\s*(\d{1,2}))?/g)) for (let k = +m[1]; k <= +(m[2] || m[1]) && k < +m[1] + 10; k++) if (!want.includes(k)) want.push(k);
     const pick = want.map((k) => qs[k - 1]).filter(Boolean);
     return pick.length ? pick : null;
   }
   if (/^(?:please\s+)?(?:answer|solve|do|complete|finish|respond to|work out)\b(?:\s+(?:all|all of|each of|every one of))?(?:\s+(?:these|them|this|it|that|the|my|those))?(?:\s+(?:questions?|problems?|homework|worksheet|one|on (?:my|the|this) screen))*\s*(?:on (?:my|the|this) screen)?\s*(?:for me)?\s*$/.test(t)
-    || /^(?:what(?:'s| is| are) the answers?(?: to (?:this|these|it|that|them))?|answers?\??)$/.test(t)) return qs;
+    || VAGUE.test(t)) return qs;
   return null;
 }
 
@@ -635,13 +762,14 @@ export async function handle({ text, llm, settings, history, screen, attachment 
       const parts = [];
       const allQs = screenQuestions(screen);
       for (const [i, q] of qs.entries()) {
-        ui.status?.(`Answering ${qs.length > 1 ? `${i + 1}/${qs.length}: ` : ''}${q.slice(0, 60)}`);
+        const head = q.split('\n')[0];
+        ui.status?.(`Answering ${qs.length > 1 ? `${i + 1}/${qs.length}: ` : ''}${head.slice(0, 60)}`);
         let ans;
         try { ans = (llm.ready || llm.recoverable) ? await answerScreenQuestion(q, screen, allQs, { llm, settings, ui }) : null; }
         catch (e) { ans = `(couldn't answer: ${e?.message || e})`; }
-        if (ans == null) { const r = await handle({ text: q, llm, settings, history: [], screen: null, attachment: null, ui: { ...ui, inStep: true, token: () => {} } }); ans = String(r.text ?? r.output ?? ''); }
+        if (ans == null) { const r = await handle({ text: q.replace(/\n/g, ' '), llm, settings, history: [], screen: null, attachment: null, ui: { ...ui, inStep: true, token: () => {} } }); ans = String(r.text ?? r.output ?? ''); }
         ans = String(ans).trim() || '(no answer)';
-        parts.push(qs.length > 1 ? `**${i + 1}. ${q}**\n${ans}` : ans);
+        parts.push(qs.length > 1 ? `**${i + 1}. ${head}**\n${ans}` : ans);
       }
       return { kind: 'answer', text: parts.join('\n\n') };
     }
