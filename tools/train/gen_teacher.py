@@ -3,7 +3,7 @@ after the one-time download). Output JSONL: {"q", "a", "cat"} and, for reading p
 Usage: python gen_teacher.py OUT.jsonl ROUNDS [TEACHER]
 """
 import json, random, re, sys
-from mlx_lm import load, generate
+from mlx_lm import load
 from mlx_lm.sample_utils import make_sampler
 
 ENGLISH = """subject-verb agreement|pronoun-antecedent agreement|run-on sentences and comma splices|sentence fragments|
@@ -50,37 +50,37 @@ def parse(t):
     return json.loads(m.group(1)) if m else None
 
 
-def main(out, rounds, teacher="mlx-community/Qwen2.5-7B-Instruct-4bit"):
+def main(out, rounds, teacher="mlx-community/Qwen2.5-14B-Instruct-4bit", batch=24):
+    from mlx_lm import batch_generate
     model, tok = load(teacher)
     samp = make_sampler(temp=0.8, top_p=0.95)
-    rnd = random.Random(7)
-
-    def ask(prompt, maxt):
-        msgs = [{"role": "user", "content": prompt}]
-        p = tok.apply_chat_template(msgs, add_generation_prompt=True, tokenize=False)
-        return generate(model, tok, prompt=p, max_tokens=maxt, sampler=samp)
-
+    rnd = random.Random(int(rounds) * 7919 + len(out))
+    enc = lambda p: tok.apply_chat_template([{"role": "user", "content": p}], add_generation_prompt=True)
     with open(out, "a") as f:
         for r in range(rounds):
-            for cat, topics in (("english", ENGLISH), ("general", GENERAL)):
-                topic = rnd.choice(topics).strip()
+            jobs = []
+            for k in range(batch):
+                if k % 6 == 5:
+                    topic = rnd.choice(ENGLISH + GENERAL).strip(); jobs.append(("reading", topic, PASSAGE.format(topic=topic)))
+                else:
+                    cat, topics = (("english", ENGLISH), ("general", GENERAL))[k % 2]
+                    topic = rnd.choice(topics).strip(); jobs.append((cat, topic, GEN.format(n=8, topic=topic)))
+            res = batch_generate(model, tok, [enc(j[2]) for j in jobs], max_tokens=1400, sampler=samp)
+            kept = 0
+            for (cat, topic, _), text in zip(jobs, res.texts):
                 try:
-                    items = parse(ask(GEN.format(n=8, topic=topic), 1400)) or []
-                    for it in items:
-                        if isinstance(it, dict) and it.get("q") and it.get("a") and len(it["a"]) < 600:
-                            f.write(json.dumps({"q": it["q"].strip(), "a": it["a"].strip(), "cat": cat, "topic": topic}, ensure_ascii=False) + "\n")
-                except Exception as e:
-                    print("skip", topic, e, file=sys.stderr)
-            if r % 3 == 0:
-                topic = rnd.choice(ENGLISH + GENERAL).strip()
-                try:
-                    d = parse(ask(PASSAGE.format(topic=topic), 900))
+                    d = parse(text)
+                except Exception:
+                    continue
+                if cat == "reading":
                     if isinstance(d, dict) and d.get("passage") and d.get("qs"):
-                        f.write(json.dumps({"passage": d["passage"], "qs": d["qs"], "cat": "reading", "topic": topic}, ensure_ascii=False) + "\n")
-                except Exception as e:
-                    print("skip passage", topic, e, file=sys.stderr)
+                        f.write(json.dumps({"passage": d["passage"], "qs": d["qs"], "cat": "reading", "topic": topic}, ensure_ascii=False) + "\n"); kept += 1
+                    continue
+                for it in d or []:
+                    if isinstance(it, dict) and it.get("q") and it.get("a") and len(str(it["a"])) < 600:
+                        f.write(json.dumps({"q": str(it["q"]).strip(), "a": str(it["a"]).strip(), "cat": cat, "topic": topic}, ensure_ascii=False) + "\n"); kept += 1
             f.flush()
-            print(f"round {r + 1}/{rounds}", file=sys.stderr, flush=True)
+            print(f"round {r + 1}/{rounds}: kept {kept}", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":

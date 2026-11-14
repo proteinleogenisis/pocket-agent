@@ -35,6 +35,7 @@ def main(math_f, teacher_f, out):
     reads = [t for t in teach if "passage" in t]
     rows = []
     math = [m for m in math if norm(m["q"]) not in held]
+    math = math[:2500]   # keep math from crowding out English and general knowledge
     for i, m in enumerate(math):
         if i % 4:
             rows.append(chat(m["q"], m["a"]))
@@ -43,6 +44,18 @@ def main(math_f, teacher_f, out):
             sheet = [f"{k + 1}. {x}" for k, x in enumerate(others[:2] + [m["q"]] + others[2:])]
             last = m["a"].split(". ")[-2] if m["a"].count(". ") >= 2 else m["a"]
             rows.append(screen("Algebra 2 Practice\n" + "\n".join(sheet), m["q"], f"{m['final']} ({last.rstrip('.')})." if last.strip() not in (m['final'], m['final'] + '.') else f"{m['final']}."))
+    # Multiple choice (the pop-up sends "question\nA. …\nB. …"): answer with the letter and option text.
+    pool = {}
+    for m in math:
+        pool.setdefault(m["q"].split()[0:2].__str__(), []).append(m)
+    for m in R.sample(math, min(500, len(math))):
+        same = [x["final"] for x in pool[m["q"].split()[0:2].__str__()] if x["final"] != m["final"]]
+        if len(same) < 3:
+            continue
+        opts = R.sample(same, 3) + [m["final"]]; R.shuffle(opts)
+        L = "ABCD"[opts.index(m["final"])]
+        q = m["q"] + "\n" + "\n".join(f"{'ABCD'[k]}. {o}" for k, o in enumerate(opts))
+        rows.append(screen("Algebra 2 Quiz\n1. " + q, q, f"{L}. {m['final']}"))
     for t in qa:
         rows.append(chat(t["q"], t["a"]))
         if R.random() < 0.25:

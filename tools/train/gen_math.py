@@ -246,7 +246,7 @@ def word():
     return f"A rectangle's length is {l - w} more than its width, and its area is {l * w}. Find the width.", f"w(w + {l - w}) = {l * w}, so w^2 + {l - w}w - {l * w} = 0. Factor: (w - {w})(w + {l}) = 0. Width can't be negative, so w = {w}.", f"{w}"
 
 
-GENS = [linear, linear, system2, quad_factor, quad_factor, quad_formula, discriminant, vertex, exponents, logs, logs,
+GENS = [linear, linear, quad_factor, quad_factor, quad_formula, discriminant, vertex, exponents, logs, logs,
         functions, functions, absval_ineq, radicals_complex, sequences, word]
 
 if __name__ == "__main__":

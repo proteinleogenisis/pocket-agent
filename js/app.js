@@ -1,4 +1,4 @@
-import { llm, CANDIDATES, probeGPU, modelIdFor, modelRecord, isCached, deleteCached, diagnoseNetwork, isMirrored, NATIVE } from './llm.js';
+import { llm, CANDIDATES, probeGPU, modelIdFor, modelRecord, isCached, deleteCached, diagnoseNetwork, isMirrored, NATIVE, OWN_MODEL } from './llm.js';
 import { handle, runTool, TOOLS, permissionFor, route, ROUTER_TESTS, FREEDOM } from './agent.js';
 import { analyzeImage, toContext, warmOCR } from './ocr.js';
 import { warmPython } from './sandbox.js';
@@ -353,7 +353,7 @@ async function initModelUI() {
     // One-time switch to settings measured stable on a 4 GB iPad.
     settings.lowMemTuned = true;
     if (settings.contextWindow > 1024) settings.contextWindow = 1024;
-    if (/^Qwen3|1\.5B|Llama/.test(settings.modelId || '')) settings.modelId = modelIdFor('Qwen2.5-Coder-0.5B-Instruct', gpu.f16 !== false);
+    if (/^Qwen3|1\.5B|Llama/.test(settings.modelId || '')) settings.modelId = modelIdFor('Pocket-Agent-0.5B', gpu.f16 !== false) || modelIdFor('Qwen3-0.6B', gpu.f16 !== false);
     store.saveSettings(settings);
   }
   // Brain: use the smartest model that fits (1.5B, tested on a 4 GB iPad). If loading it ever
@@ -374,19 +374,22 @@ async function initModelUI() {
   else if (crashed) { localStorage.removeItem('pa.loadingModel'); crashes = /1\.5B/.test(crashed) ? crashes + 1 : 0; localStorage.setItem('pa.loadCrashes', String(crashes)); }
   if (crashed && crashes >= 2) {
     {
-      settings.brainFallback = true; settings.modelId = modelIdFor('Qwen2.5-Coder-0.5B-Instruct', gpu.f16 !== false); store.saveSettings(settings);
+      settings.brainFallback = true; settings.modelId = modelIdFor('Pocket-Agent-0.5B', gpu.f16 !== false) || modelIdFor('Qwen3-0.6B', gpu.f16 !== false); store.saveSettings(settings);
       addMsg('err', 'The 1.5B brain ran out of memory on this iPad, so I switched to the 0.5B brain.');
     }
   }
   if (!settings.fallbackReset2) { settings.fallbackReset2 = true; settings.brainFallback = false; localStorage.removeItem('pa.loadCrashes'); store.saveSettings(settings); }
   if (!settings.pickReset) { settings.pickReset = true; settings.userPickedModel = false; store.saveSettings(settings); } // earlier button bug
   // Always the best brain unless it really didn't fit, or you picked another one under Advanced.
-  const best = modelIdFor('Qwen2.5-Coder-1.5B-Instruct', gpu.f16 !== false);
+  // Default brain: Pocket Agent 0.5B, fine-tuned for homework (tools/train/). On the held-out test at 4-bit it
+  // ties the 1.5B (68% vs 69%; better at math, a bit weaker at English), loads ~3x faster and answers ~9x faster.
+  if (!settings.ownModelSwitch) { settings.ownModelSwitch = true; settings.userPickedModel = false; settings.brainFallback = false; store.saveSettings(settings); }
+  const best = modelIdFor('Pocket-Agent-0.5B', gpu.f16 !== false) || modelIdFor('Qwen2.5-Coder-1.5B-Instruct', gpu.f16 !== false);
   if (gpu.ok && !settings.brainFallback && !settings.userPickedModel && settings.modelId !== best) {
     settings.brainBest = true; settings.contextWindow = Math.max(4096, settings.contextWindow || 0); settings.modelId = best; store.saveSettings(settings);
   }
   $('gpuInfo').textContent = gpu.ok
-    ? `Runs on this iPad's GPU. ${settings.brainFallback ? 'Using 0.5B (1.5B ran out of memory).' : 'Qwen2.5-Coder 1.5B is the smartest that fits.'}`
+    ? `Runs on this iPad's GPU. ${settings.modelId === OWN_MODEL ? 'Pocket Agent 0.5B: trained on Algebra 2, English and general homework questions.' : ''}`
     : `⚠︎ ${gpu.reason} The model can't run here, but /commands, OCR and code tools still work.`;
   $('loadModelBtn').disabled = !gpu.ok;
   // Load the chosen brain FIRST (if it's downloaded) — every second here is lag after ⌘⇧Space.
