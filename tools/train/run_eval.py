@@ -20,7 +20,10 @@ def main():
     greedy = make_sampler(temp=0.0)
     score, n, t0, rows = {}, {}, time.time(), []
     for cat, q, acc in all_items():
-        p = tok.apply_chat_template([{"role": "system", "content": SYSTEM}, {"role": "user", "content": q}], add_generation_prompt=True, tokenize=False)
+        try:
+            p = tok.apply_chat_template([{"role": "system", "content": SYSTEM}, {"role": "user", "content": q}], add_generation_prompt=True, tokenize=False, enable_thinking=False)
+        except Exception:  # models without a system role (Gemma): put it in the user turn
+            p = tok.apply_chat_template([{"role": "user", "content": SYSTEM + "\n\n" + q}], add_generation_prompt=True, tokenize=False)
         out = generate(model, tok, prompt=p, max_tokens=300, sampler=greedy)
         good = ok(cat, out, acc)
         score[cat] = score.get(cat, 0) + good; n[cat] = n.get(cat, 0) + 1
