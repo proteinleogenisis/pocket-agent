@@ -27,6 +27,10 @@ const REMOTE = {
     base: 'https://raw.githubusercontent.com/proteinleogenisis/pocket-agent/models-qwen35-2b/',
     split: { 'params_shard_0.bin': ['params_shard_0.bin.partaa', 'params_shard_0.bin.partab', 'params_shard_0.bin.partac'] },
   },
+  'Qwen3-1.7B-q4f16_1-MLC': {
+    base: 'https://raw.githubusercontent.com/proteinleogenisis/pocket-agent/models-qwen3-1.7b/',
+    split: { 'params_shard_0.bin': ['params_shard_0.bin.partaa', 'params_shard_0.bin.partab'] },
+  },
 };
 async function remoteFile(id, file) {
   const m = REMOTE[id]; if (!m) return new Response('unknown model', { status: 404 });

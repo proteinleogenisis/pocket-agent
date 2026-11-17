@@ -1,6 +1,6 @@
 // Offline support: precaches the app shell and vendored engines (OCR, Python, model runtime).
 // Model weights are cached separately by WebLLM; this worker never touches them.
-const VERSION = '569188259df9';
+const VERSION = 'ae9e812f40d0';
 const CACHE = `pocket-agent-${VERSION}`;
 const FILES = [
   "./",
@@ -62,6 +62,10 @@ const REMOTE = {
   'Qwen3.5-2B-q4f16_1-MLC': {
     base: 'https://raw.githubusercontent.com/proteinleogenisis/pocket-agent/models-qwen35-2b/',
     split: { 'params_shard_0.bin': ['params_shard_0.bin.partaa', 'params_shard_0.bin.partab', 'params_shard_0.bin.partac'] },
+  },
+  'Qwen3-1.7B-q4f16_1-MLC': {
+    base: 'https://raw.githubusercontent.com/proteinleogenisis/pocket-agent/models-qwen3-1.7b/',
+    split: { 'params_shard_0.bin': ['params_shard_0.bin.partaa', 'params_shard_0.bin.partab'] },
   },
 };
 async function remoteFile(id, file) {

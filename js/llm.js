@@ -33,6 +33,7 @@ export async function probeGPU() {
 const MIRRORED = {
   'Qwen3-0.6B-q4f16_1-MLC': 'Qwen3-0.6B-q4f16_1_cs1k-webgpu.wasm',
   'Qwen3.5-2B-q4f16_1-MLC': 'Qwen3.5-2B-q4f16_1_cs1k-webgpu.wasm',
+  'Qwen3-1.7B-q4f16_1-MLC': 'Qwen3-1.7B-q4f16_1_cs1k-webgpu.wasm',
 };
 const modelsBase = new URL('../models/', import.meta.url).href;
 export const APP_CONFIG = {
@@ -49,7 +50,7 @@ export const OWN_MODEL = 'Pocket-Agent-0.5B-q4f16_1-MLC';
   if (base) APP_CONFIG.model_list.unshift({ ...base, model_id: OWN_MODEL, model: `${modelsBase}${OWN_MODEL}/resolve/main/`, model_lib: `${modelsBase}lib/Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm` });
 }
 // Bigger models served from a GitHub branch through the service worker (see tools/sw.template.js).
-const REMOTE = new Set(['Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC', 'Qwen3.5-2B-q4f16_1-MLC']);
+const REMOTE = new Set(['Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC', 'Qwen3.5-2B-q4f16_1-MLC', 'Qwen3-1.7B-q4f16_1-MLC']);
 for (const m of APP_CONFIG.model_list) if (REMOTE.has(m.model_id)) m.model = `${modelsBase}remote/${m.model_id}/resolve/main/`;
 export const isMirrored = (id) => id === OWN_MODEL || !!MIRRORED[id] || REMOTE.has(id);
 
