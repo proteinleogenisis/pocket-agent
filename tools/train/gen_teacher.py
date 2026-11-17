@@ -67,6 +67,7 @@ Then write 3 multiple-choice questions about it. Choose from: main idea or claim
 evidence that best supports a claim, vocabulary in context, function of a sentence or paragraph. Each question has exactly 4 options, exactly one is
 unambiguously correct and the other three are plausible but clearly wrong. Give the letter of the correct option.
 Return ONLY JSON in exactly this form: {{"passage": "...", "qs": [{{"q": "...", "options": ["...", "...", "...", "..."], "answer": "B"}}]}}
+All four options must be similar in length (within about 30% of each other) and the correct option must NOT be the longest: make the wrong options just as specific and detailed as the right one.
 Options must be plain text without letter prefixes, and must not use "all of the above" or "none of the above". No other text."""
 
 
@@ -92,6 +93,8 @@ def clean_mc(d, topic, rnd):
         if any(re.search(r"\b(all|none|both) of the (above|these)\b", o, re.I) for o in opts):
             continue
         right = opts["ABCD".index(ans)]
+        if len(right) > 1.3 * max(len(o) for o in opts if o != right):  # correct option stands out by length: drop
+            continue
         rnd.shuffle(opts)
         qs.append({"q": q, "options": opts, "answer": "ABCD"[opts.index(right)]})
     if not qs:
