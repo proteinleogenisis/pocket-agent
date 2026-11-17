@@ -1,5 +1,6 @@
 """Make English + general-knowledge practice Q&A with a bigger local teacher model (runs on the Mac, offline
-after the one-time download). Output JSONL: {"q", "a", "cat"} and, for reading passages, {"passage", "qs": [[q, a], ...]}.
+after the one-time download). Output JSONL: {"q", "a", "cat"}; for reading passages {"passage", "qs": [[q, a], ...]};
+for multiple-choice passages {"cat": "mcreading", "passage", "qs": [{"q", "options": [4], "answer": "A-D"}], "topic"}.
 Usage: python gen_teacher.py OUT.jsonl ROUNDS [TEACHER]
 """
 import json, random, re, sys
@@ -33,6 +34,20 @@ computer basics and the internet|famous inventors and inventions|famous artists 
 chess rules and basic strategy|sports rules (basketball, soccer, football)|everyday how-to questions|study tips and time management|
 world religions basics|famous scientists|space exploration|climate change basics|recycling and the environment""".replace("\n", "").split("|")
 
+ADV_ENGLISH = """rhetorical situation (speaker, audience, purpose, context)|author's purpose in an argumentative passage|identifying the main claim of an essay|
+tone and attitude of the author|diction and connotation as rhetorical choices|syntax: short vs long sentences, periodic and cumulative sentences|
+ethos, pathos and logos in speeches|anaphora and parallelism|antithesis and juxtaposition|irony, understatement and sarcasm in nonfiction|
+concession and refutation in an argument|counterargument and rebuttal|analogy and extended metaphor as argument|rhetorical questions and their effect|
+inference from a passage|evidence that best supports a claim|vocabulary in context (multiple meaning words)|function of a sentence or paragraph in a passage|
+shifts in tone or perspective within a passage|structure and organization of an argument|qualifying language and hedging|loaded language and bias|
+logical fallacies (straw man, slippery slope, false dilemma, ad hominem)|appeal to authority and appeal to emotion|primary vs secondary sources|
+analyzing a speech excerpt about civic life|analyzing an editorial about technology and society|analyzing a personal essay or memoir excerpt|
+analyzing informational science writing for a general audience|analyzing a historical argument or letter|analyzing a nature essay|
+analyzing a narrative passage: narrator, characterization, symbolism|reading dense nineteenth-century prose|imagery and sensory detail|
+paradox and oxymoron|allusion and its purpose|satire and its targets|dangling modifiers and misplaced modifiers|faulty parallelism|
+pronoun case and pronoun reference errors|subject-verb agreement with intervening phrases|colons, semicolons and dashes for effect|
+sentence combining for style and emphasis|revising wordy or vague sentences|synthesizing information from two short sources""".replace("\n", "").split("|")
+
 GEN = """Write {n} different questions a high-school student (grade 9-11) might ask about: {topic}.
 Mix easy and medium questions. Give each a correct, short answer: the answer first, then at most 2 short sentences of explanation.
 For grammar questions that ask to fix a sentence, include the full sentence in the question and the corrected sentence in the answer.
@@ -42,12 +57,46 @@ PASSAGE = """Write a short reading passage (90-150 words) for high-school studen
 (at least one about the main idea and one about a detail or vocabulary word in context) with short correct answers based only on the passage.
 Return ONLY JSON: {{"passage": "...", "qs": [["question", "answer"], ...]}}"""
 
+ADV_GEN = """Write {n} different questions at AP English Language / advanced high-school level about: {topic}.
+Where useful, include a short original quoted sentence or 2-3 sentence excerpt inside the question. Give each a correct, short answer: the answer first, then at most 2 short sentences of explanation.
+Return ONLY a JSON array of objects like {{"q": "...", "a": "..."}}. No other text."""
+
+MCPASSAGE = """Write an ORIGINAL reading passage of 150-220 words in the style of an AP English Language exam, on this subject or skill: {topic}.
+The passage may be an argumentative essay excerpt, a speech, an editorial, a narrative, or informational writing. Do not quote any published work.
+Then write 3 multiple-choice questions about it. Choose from: main idea or claim, author's purpose, tone, rhetorical device or strategy, inference,
+evidence that best supports a claim, vocabulary in context, function of a sentence or paragraph. Each question has exactly 4 options, exactly one is
+unambiguously correct and the other three are plausible but clearly wrong. Give the letter of the correct option.
+Return ONLY JSON in exactly this form: {{"passage": "...", "qs": [{{"q": "...", "options": ["...", "...", "...", "..."], "answer": "B"}}]}}
+Options must be plain text without letter prefixes, and must not use "all of the above" or "none of the above". No other text."""
+
 
 def parse(t):
     t = t.strip()
     t = re.sub(r"^```(?:json)?\s*|\s*```$", "", t)
     m = re.search(r"(\[.*\]|\{.*\})", t, re.S)
     return json.loads(m.group(1)) if m else None
+
+
+def clean_mc(d, topic, rnd):
+    """Validate a teacher MC passage; shuffle options so the correct letter is not biased. Returns a row or None."""
+    if not isinstance(d, dict) or not isinstance(d.get("passage"), str) or len(d["passage"].split()) < 100:
+        return None
+    qs = []
+    for it in d.get("qs") or []:
+        try:
+            q, opts, ans = str(it["q"]).strip(), [re.sub(r"^\(?[A-Da-d][.):]\s+", "", str(o)).strip() for o in it["options"]], str(it["answer"]).strip().upper()[:1]
+        except Exception:
+            continue
+        if not q or len(opts) != 4 or len(set(opts)) != 4 or ans not in "ABCD" or not ans or not all(opts):
+            continue
+        if any(re.search(r"\b(all|none|both) of the (above|these)\b", o, re.I) for o in opts):
+            continue
+        right = opts["ABCD".index(ans)]
+        rnd.shuffle(opts)
+        qs.append({"q": q, "options": opts, "answer": "ABCD"[opts.index(right)]})
+    if not qs:
+        return None
+    return {"cat": "mcreading", "passage": d["passage"].strip(), "qs": qs, "topic": topic}
 
 
 def main(out, rounds, teacher="mlx-community/Qwen2.5-14B-Instruct-4bit", batch=24):
@@ -60,17 +109,27 @@ def main(out, rounds, teacher="mlx-community/Qwen2.5-14B-Instruct-4bit", batch=2
         for r in range(rounds):
             jobs = []
             for k in range(batch):
-                if k % 6 == 5:
+                # thirds: advanced-English Q&A, multiple-choice passages, and the previous mix (passages, English, general)
+                if k % 3 == 0:
+                    topic = rnd.choice(ADV_ENGLISH).strip(); jobs.append(("english2", topic, ADV_GEN.format(n=8, topic=topic)))
+                elif k % 3 == 1:
+                    topic = rnd.choice(ADV_ENGLISH).strip(); jobs.append(("mcreading", topic, MCPASSAGE.format(topic=topic)))
+                elif k % 6 == 5:
                     topic = rnd.choice(ENGLISH + GENERAL).strip(); jobs.append(("reading", topic, PASSAGE.format(topic=topic)))
                 else:
-                    cat, topics = (("english", ENGLISH), ("general", GENERAL))[k % 2]
+                    cat, topics = (("english", ENGLISH), ("general", GENERAL))[(k // 6) % 2]
                     topic = rnd.choice(topics).strip(); jobs.append((cat, topic, GEN.format(n=8, topic=topic)))
-            res = batch_generate(model, tok, [enc(j[2]) for j in jobs], max_tokens=1400, sampler=samp)
+            res = batch_generate(model, tok, [enc(j[2]) for j in jobs], max_tokens=1600, sampler=samp)
             kept = 0
             for (cat, topic, _), text in zip(jobs, res.texts):
                 try:
                     d = parse(text)
                 except Exception:
+                    continue
+                if cat == "mcreading":
+                    row = clean_mc(d, topic, rnd)
+                    if row:
+                        f.write(json.dumps(row, ensure_ascii=False) + "\n"); kept += 1
                     continue
                 if cat == "reading":
                     if isinstance(d, dict) and d.get("passage") and d.get("qs"):

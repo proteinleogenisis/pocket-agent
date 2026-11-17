@@ -32,7 +32,8 @@ def main(math_f, teacher_f, out):
     math = [json.loads(l) for l in open(math_f)]
     teach = [json.loads(l) for l in open(teacher_f)] if os.path.exists(teacher_f) else []
     qa = [t for t in teach if "q" in t and norm(t["q"]) not in held]
-    reads = [t for t in teach if "passage" in t]
+    reads = [t for t in teach if "passage" in t and t.get("cat") != "mcreading"]
+    mcreads = [t for t in teach if t.get("cat") == "mcreading"]
     rows = []
     math = [m for m in math if norm(m["q"]) not in held]
     math = math[:2500]   # keep math from crowding out English and general knowledge
@@ -67,6 +68,18 @@ def main(math_f, teacher_f, out):
             if isinstance(q, str) and isinstance(a, str):
                 ctx = r["passage"] + "\n\nQuestions\n" + "\n".join(f"{k + 1}. {x[0]}" for k, x in enumerate(r["qs"]))
                 rows.append(screen(ctx, q, short(a)))
+    # Multiple-choice passages: worksheet-style screen text, answer = "B. <option text>".
+    nmc = 0
+    for r in mcreads:
+        qs = [x for x in r.get("qs") or [] if isinstance(x, dict) and isinstance(x.get("q"), str) and isinstance(x.get("options"), list)
+              and len(x["options"]) == 4 and str(x.get("answer", "")).strip().upper()[:1] in list("ABCD")]
+        if not qs:
+            continue
+        opt_lines = lambda x: "\n".join(f"{'ABCD'[k]}. {o}" for k, o in enumerate(x["options"]))
+        ctx = f"{r.get('topic', 'Reading').title()}\n\n{r['passage']}\n\nQuestions\n" + "\n".join(f"{k + 1}. {x['q']}\n{opt_lines(x)}" for k, x in enumerate(qs))
+        for x in qs:
+            L = str(x["answer"]).strip().upper()[:1]
+            rows.append(screen(ctx, f"{x['q']}\n{opt_lines(x)}", f"{L}. {x['options']['ABCD'.index(L)]}")); nmc += 1
     R.shuffle(rows)
     os.makedirs(out, exist_ok=True)
     nv = max(50, len(rows) // 25)
@@ -76,7 +89,7 @@ def main(math_f, teacher_f, out):
     with open(os.path.join(out, "train.jsonl"), "w") as f:
         for r in rows[nv:]:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    print(f"{len(rows) - nv} train, {nv} valid  (math {len(math)}, teacher Q&A {len(qa)}, passages {len(reads)})")
+    print(f"{len(rows) - nv} train, {nv} valid  (math {len(math)}, teacher Q&A {len(qa)}, passages {len(reads)}, MC questions {nmc})")
 
 
 if __name__ == "__main__":
