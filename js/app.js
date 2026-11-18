@@ -1,4 +1,4 @@
-import { llm, CANDIDATES, probeGPU, modelIdFor, modelRecord, isCached, deleteCached, diagnoseNetwork, isMirrored, NATIVE, OWN_MODEL } from './llm.js';
+import { llm, CANDIDATES, probeGPU, modelIdFor, modelRecord, isCached, deleteCached, diagnoseNetwork, isMirrored, NATIVE, OWN_MODEL, OWN_MODEL_15 } from './llm.js';
 import { handle, runTool, TOOLS, permissionFor, route, ROUTER_TESTS, FREEDOM } from './agent.js';
 import { analyzeImage, toContext, warmOCR } from './ocr.js';
 import { warmPython } from './sandbox.js';
@@ -381,15 +381,16 @@ async function initModelUI() {
   if (!settings.fallbackReset2) { settings.fallbackReset2 = true; settings.brainFallback = false; localStorage.removeItem('pa.loadCrashes'); store.saveSettings(settings); }
   if (!settings.pickReset) { settings.pickReset = true; settings.userPickedModel = false; store.saveSettings(settings); } // earlier button bug
   // Always the best brain unless it really didn't fit, or you picked another one under Advanced.
-  // Default brain: Pocket Agent 0.5B, fine-tuned for homework (tools/train/). On the held-out test at 4-bit it
-  // ties the 1.5B (68% vs 69%; better at math, a bit weaker at English), loads ~3x faster and answers ~9x faster.
-  if (!settings.ownModelSwitch) { settings.ownModelSwitch = true; settings.userPickedModel = false; settings.brainFallback = false; store.saveSettings(settings); }
-  const best = modelIdFor('Pocket-Agent-0.5B', gpu.f16 !== false) || modelIdFor('Qwen2.5-Coder-1.5B-Instruct', gpu.f16 !== false);
+  // Default brain since 2026-11-17: Pocket Agent 1.5B (Qwen2.5-1.5B-Instruct fine-tuned on Algebra 2, advanced English and
+  // reading). Held-out test at 4-bit: 81% vs 79% untrained and 66% for the 0.5B. Bigger models (Qwen3 1.7B, Qwen3.5 2B)
+  // crashed this 4 GB iPad. If the 1.5B ever runs out of memory twice, the 0.5B takes over (brainFallback).
+  if (!settings.ownModelSwitch2) { settings.ownModelSwitch2 = true; settings.ownModelSwitch = true; settings.userPickedModel = false; settings.brainFallback = false; try { localStorage.removeItem('pa.loadCrashes'); } catch {} store.saveSettings(settings); }
+  const best = settings.brainFallback ? modelIdFor('Pocket-Agent-0.5B', gpu.f16 !== false) : (modelIdFor('Pocket-Agent-1.5B', gpu.f16 !== false) || modelIdFor('Pocket-Agent-0.5B', gpu.f16 !== false));
   if (gpu.ok && !settings.brainFallback && !settings.userPickedModel && settings.modelId !== best) {
     settings.brainBest = true; settings.contextWindow = Math.max(4096, settings.contextWindow || 0); settings.modelId = best; store.saveSettings(settings);
   }
   $('gpuInfo').textContent = gpu.ok
-    ? `Runs on this iPad's GPU. ${settings.modelId === OWN_MODEL ? 'Pocket Agent 0.5B: trained on Algebra 2, English and general homework questions.' : ''}`
+    ? `Runs on this iPad's GPU. ${settings.modelId === OWN_MODEL_15 ? 'Pocket Agent 1.5B: trained on Algebra 2, advanced English and reading comprehension.' : settings.modelId === OWN_MODEL ? 'Pocket Agent 0.5B (lighter backup).' : ''}`
     : `⚠︎ ${gpu.reason} The model can't run here, but /commands, OCR and code tools still work.`;
   $('loadModelBtn').disabled = !gpu.ok;
   // Load the chosen brain FIRST (if it's downloaded) — every second here is lag after ⌘⇧Space.

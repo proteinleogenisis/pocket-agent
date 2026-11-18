@@ -5,7 +5,8 @@ import { CreateWebWorkerMLCEngine, prebuiltAppConfig, hasModelInCache, deleteMod
 
 // Candidates sized for a 4 GB iPad. VRAM figures come from WebLLM's config (at 4k context).
 export const CANDIDATES = [
-  { base: 'Pocket-Agent-0.5B',           label: 'Pocket Agent 0.5B',  note: 'trained for homework, loads fastest — hosted with this app' },
+  { base: 'Pocket-Agent-1.5B',           label: 'Pocket Agent 1.5B',  note: 'smartest: trained on Algebra 2, advanced English and reading' },
+  { base: 'Pocket-Agent-0.5B',           label: 'Pocket Agent 0.5B',  note: 'lighter backup: loads fastest, less accurate' },
   { base: 'Qwen3-0.6B',                  label: 'Qwen3 0.6B',         note: 'newer general model — hosted with this app' },
   { base: 'Qwen2.5-Coder-1.5B-Instruct', label: 'Qwen2.5-Coder 1.5B', note: 'a bit better at English, slower to load and answer' },
   { base: 'Llama-3.2-1B-Instruct',       label: 'Llama 3.2 1B',       note: 'general chat — needs Hugging Face (blocked on some networks)' },
@@ -47,10 +48,17 @@ export const OWN_MODEL = 'Pocket-Agent-0.5B-q4f16_1-MLC';
   const base = prebuiltAppConfig.model_list.find((m) => m.model_id === 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC');
   if (base) APP_CONFIG.model_list.unshift({ ...base, model_id: OWN_MODEL, model: `${modelsBase}${OWN_MODEL}/resolve/main/`, model_lib: `${modelsBase}lib/Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm` });
 }
+// Pocket Agent 1.5B (default): Qwen2.5-1.5B-Instruct fine-tuned the same way, plus advanced English and
+// reading comprehension. Too big for GitHub Pages, so it's served from a branch (see tools/sw.template.js).
+export const OWN_MODEL_15 = 'Pocket-Agent-1.5B-q4f16_1-MLC';
+{
+  const base = prebuiltAppConfig.model_list.find((m) => m.model_id === 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC');
+  if (base) APP_CONFIG.model_list.unshift({ ...base, model_id: OWN_MODEL_15, model: `${modelsBase}remote/${OWN_MODEL_15}/resolve/main/`, model_lib: `${modelsBase}lib/Qwen2-1.5B-Instruct-q4f16_1_cs1k-webgpu.wasm` });
+}
 // Bigger models served from a GitHub branch through the service worker (see tools/sw.template.js).
 const REMOTE = new Set(['Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC']);
 for (const m of APP_CONFIG.model_list) if (REMOTE.has(m.model_id)) m.model = `${modelsBase}remote/${m.model_id}/resolve/main/`;
-export const isMirrored = (id) => id === OWN_MODEL || !!MIRRORED[id] || REMOTE.has(id);
+export const isMirrored = (id) => id === OWN_MODEL || id === OWN_MODEL_15 || !!MIRRORED[id] || REMOTE.has(id);
 
 export function modelIdFor(base, f16) {
   const id = `${base}-${f16 ? 'q4f16_1' : 'q4f32_1'}-MLC`;

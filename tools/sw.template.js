@@ -23,6 +23,10 @@ const REMOTE = {
     base: 'https://raw.githubusercontent.com/proteinleogenisis/pocket-agent/models-1.5b/',
     split: { 'params_shard_0.bin': ['params_shard_0.bin.partaa', 'params_shard_0.bin.partab'] },
   },
+  'Pocket-Agent-1.5B-q4f16_1-MLC': {
+    base: 'https://raw.githubusercontent.com/proteinleogenisis/pocket-agent/models-pa-1.5b/',
+    split: { 'params_shard_0.bin': ['params_shard_0.bin.partaa', 'params_shard_0.bin.partab'] },
+  },
 };
 async function remoteFile(id, file) {
   const m = REMOTE[id]; if (!m) return new Response('unknown model', { status: 404 });
