@@ -429,6 +429,15 @@ async function loadModel(id) {
   $('modelDot').className = 'dot loading'; $('modelLabel').textContent = 'Loading…';
   $('loadProgress').hidden = false; $('loadModelBtn').disabled = true;
   try { localStorage.setItem('pa.loadingModel', id); } catch {}
+  // Big models come through the service worker (./models/remote/…). On a first visit — e.g. the very first
+  // ⌘⇧Space pop-up — it isn't controlling the page yet, so wait for it instead of failing the download.
+  if (!NATIVE && /\/models\/remote\//.test(modelRecord(id)?.model || '') && 'serviceWorker' in navigator && !navigator.serviceWorker.controller) {
+    $('loadText').textContent = 'Getting ready to download…';
+    await Promise.race([
+      new Promise((r) => navigator.serviceWorker.addEventListener('controllerchange', r, { once: true })),
+      new Promise((r) => setTimeout(r, 20000)),
+    ]);
+  }
   try {
     await llm.load(id, {
       contextWindow: settings.contextWindow,
