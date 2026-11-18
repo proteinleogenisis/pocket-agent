@@ -643,7 +643,9 @@ function takeOptions(items, i) {
   for (; j < items.length; j++) {
     const it = items[j];
     if (it.kind !== 'let' || !it.text || /\?\s*$/.test(it.text) || wordsOf(it.text).length > 14) break;
-    if (WH_RE.test(it.text) || TASK_RE.test(it.text) && wordsOf(it.text).length > 3) break;
+    // Only the first option can be mistaken for a new task; once A. is taken, B./C./D. in order are options
+    // even when they start with a verb ("C. explain why the garage will be late").
+    if (!opts.length && (WH_RE.test(it.text) || TASK_RE.test(it.text) && wordsOf(it.text).length > 3)) break;
     const L = it.key.toUpperCase();
     if (opts.length ? L <= last : L !== 'A') break;
     opts.push({ L, text: it.text }); last = L;

@@ -225,6 +225,13 @@ await e2e('handle: exact math on multiple choice maps to the option', async () =
   assert.equal(m.res.text, 'B. 4'); assert.equal(m.asked.length, 0);
 });
 
+test('options that start with a task verb stay options', () => {
+  const qs = screenQuestions('Reading Check\n1. The author mentions the library mainly to\nA. praise the council for saving money\nB. suggest the council undercuts its goal\nC. explain why the garage will be finished late\nD. argue that students should drive more\n2. Which word is an adverb in "She sang loudly"?\nA. She\nB. sang\nC. loudly');
+  assert.equal(qs.length, 2);
+  assert.match(qs[0], /\nC\. explain why the garage/);
+  assert.match(qs[1], /^Which word is an adverb/);
+});
+
 // ---------- Unchanged behaviour ----------
 test('joinWrapped joins wrapped question', () => assert.equal(joinWrapped('1. Which planet is known as the Red\nPlanet?\n2. Who is it?'), '1. Which planet is known as the Red Planet?\n2. Who is it?'));
 test('solveExact quadratic', () => assert.match(solveExact('Solve x^2 - 5x + 6 = 0'), /x = 2 or x = 3/));
