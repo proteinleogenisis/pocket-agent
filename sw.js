@@ -1,6 +1,6 @@
 // Offline support: precaches the app shell and vendored engines (OCR, Python, model runtime).
 // Model weights are cached separately by WebLLM; this worker never touches them.
-const VERSION = 'ae9e812f40d0';
+const VERSION = 'c1fbad9590a3';
 const CACHE = `pocket-agent-${VERSION}`;
 const FILES = [
   "./",
@@ -59,14 +59,6 @@ const REMOTE = {
     base: 'https://raw.githubusercontent.com/proteinleogenisis/pocket-agent/models-1.5b/',
     split: { 'params_shard_0.bin': ['params_shard_0.bin.partaa', 'params_shard_0.bin.partab'] },
   },
-  'Qwen3.5-2B-q4f16_1-MLC': {
-    base: 'https://raw.githubusercontent.com/proteinleogenisis/pocket-agent/models-qwen35-2b/',
-    split: { 'params_shard_0.bin': ['params_shard_0.bin.partaa', 'params_shard_0.bin.partab', 'params_shard_0.bin.partac'] },
-  },
-  'Qwen3-1.7B-q4f16_1-MLC': {
-    base: 'https://raw.githubusercontent.com/proteinleogenisis/pocket-agent/models-qwen3-1.7b/',
-    split: { 'params_shard_0.bin': ['params_shard_0.bin.partaa', 'params_shard_0.bin.partab'] },
-  },
 };
 async function remoteFile(id, file) {
   const m = REMOTE[id]; if (!m) return new Response('unknown model', { status: 404 });
@@ -78,13 +70,17 @@ async function remoteFile(id, file) {
   const rs = await Promise.all(parts.map((p) => fetch(m.base + p, { cache: 'no-store' })));
   if (rs.some((r) => !r.ok)) return new Response('part missing', { status: 502 });
   const total = rs.reduce((n, r) => n + Number(r.headers.get('content-length') || 0), 0);
-  let i = 0, reader = rs[0].body.getReader();
+  let i = 0, got = 0, reader = rs[0].body.getReader();
   const body = new ReadableStream({
     async pull(ctl) {
       for (;;) {
         const { done, value } = await reader.read();
-        if (!done) { ctl.enqueue(value); return; }
-        if (++i >= rs.length) { ctl.close(); return; }
+        if (!done) { got += value.byteLength; ctl.enqueue(value); return; }
+        if (++i >= rs.length) {
+          // A part that stopped early must fail the download, never be saved as a cut-off model file.
+          if (total && got !== total) ctl.error(new Error(`model file cut off (${got} of ${total} bytes)`)); else ctl.close();
+          return;
+        }
         reader = rs[i].body.getReader();
       }
     },
