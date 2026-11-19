@@ -223,7 +223,13 @@ const FILES = [
 
 self.addEventListener('install', (e) => {
   // cache: 'reload' bypasses the HTTP cache, so a new version never stores stale files.
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
+  // Each file is fetched as f?v=VERSION: a URL GitHub's CDN has never seen, so a new version can't be filled with the
+  // old files the CDN still holds for a few minutes after a deploy (seen on the iPad). Stored under the plain URL.
+  e.waitUntil(caches.open(CACHE).then((c) => Promise.all(FILES.map(async (f) => {
+    const r = await fetch(new Request(`${f}${f.includes('?') ? '&' : '?'}v=${VERSION}`, { cache: 'reload' }));
+    if (!r.ok) throw new Error(`${f}: ${r.status}`);
+    await c.put(f, r);
+  }))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {
