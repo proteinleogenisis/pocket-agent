@@ -360,7 +360,7 @@ async function initModelUI() {
   // Brain: use the smartest model that fits (1.5B, tested on a 4 GB iPad). If loading it ever
   // crashed the tab, fall back to 0.5B for good and say so.
   // A reload or tab close mid-load is not a crash: only a load that never reaches pagehide counts.
-  addEventListener('pagehide', () => { try { localStorage.removeItem('pa.loadingModel'); } catch {} });
+  addEventListener('pagehide', () => { try { localStorage.removeItem('pa.loadingModel'); if (inPopup) localStorage.removeItem('pa.generating'); } catch {} });
   if (settings.brainFallback && !settings.fallbackRechecked) {   // earlier versions could fall back by mistake
     settings.fallbackRechecked = true; settings.brainFallback = false; settings.brainBest = false; store.saveSettings(settings);
   }
@@ -393,7 +393,8 @@ async function initModelUI() {
   if (inPopup) {
     try {
       let n = +(localStorage.getItem('pa.popCrashes') || 0);
-      if (genCrashed || crashed) n++;
+      // Only an answer that died counts: closing the panel mid-load is normal (and pagehide clears pa.generating on a close).
+      if (genCrashed) n++;
       if (n >= 2 && !settings.brainFallback) {
         n = 0; popFellBack = true;
         settings.brainFallback = true; settings.modelId = modelIdFor('Pocket-Agent-0.5B', gpu.f16 !== false) || modelIdFor('Qwen3-0.6B', gpu.f16 !== false); store.saveSettings(settings);
@@ -431,10 +432,9 @@ async function initModelUI() {
 }
 
 // Two copies of the 1.5B (Safari tab + pop-up) don't fit in 4 GB: a hidden Safari tab gives its copy back.
-let releasedModel = null, hideTimer = 0, releasing = false;
+let releasedModel = null, hideTimer = 0, releasing = null;
 function watchVisibility() {
-  const release = async () => {
-    if (releasing) return; releasing = true;
+  const release = () => releasing || (releasing = (async () => {
     try {
       // An answer or a load in progress finishes first; unloading under it would kill it.
       while (document.hidden && (busy || llm.busy || llm.loading)) await new Promise((r) => setTimeout(r, 500));
@@ -442,13 +442,15 @@ function watchVisibility() {
       releasedModel = llm.lastLoad?.id || settings.modelId;
       await llm.unload();
       $('modelDot').className = 'dot'; $('modelLabel').textContent = 'AI paused (tab in background)';
-    } catch {} finally { releasing = false; }
-  };
+    } catch {} finally { releasing = null; }
+  })());
   document.addEventListener('visibilitychange', () => {
     clearTimeout(hideTimer);
     if (popupMode) return;
     if (document.hidden) hideTimer = setTimeout(release, 1500);
-    else if (releasedModel) { const id = releasedModel; releasedModel = null; loadModel(id); }
+    else (releasing || Promise.resolve()).then(() => {   // never start loading while the unload is still running
+      if (!document.hidden && releasedModel) { const id = releasedModel; releasedModel = null; loadModel(id); }
+    });
   });
 }
 
