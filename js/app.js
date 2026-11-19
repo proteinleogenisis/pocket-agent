@@ -414,9 +414,11 @@ async function initModelUI() {
   $('loadModelBtn').disabled = !gpu.ok;
   // Load the chosen brain FIRST (if it's downloaded) — every second here is lag after ⌘⇧Space.
   // In the pop-up it also starts when not downloaded yet, so a first-time download begins right away.
-  if (gpu.ok && settings.modelId && (/[#&]ctx=/.test(location.hash) || await isCached(settings.modelId))) loadModel(settings.modelId);
-  // The Advanced brain list (with ✓ for downloaded ones) fills in afterwards, in the background.
+  if (gpu.ok && settings.modelId && (/[#&]ctx=/.test(location.hash) || settings.loadedOk === settings.modelId || await isCached(settings.modelId))) loadModel(settings.modelId);
+  // The Advanced brain list (with ✓ for downloaded ones) fills in afterwards, once the brain is up: its cache checks
+  // are slow on the iPad and would delay the load.
   (async () => {
+    await llm.loading?.catch(() => {});
     const sel = $('modelSelect'); sel.replaceChildren();
     for (const c of CANDIDATES) {
       const id = modelIdFor(c.base, gpu.f16 !== false);
@@ -473,18 +475,18 @@ async function loadModel(id) {
       new Promise((r) => setTimeout(r, 20000)),
     ]);
   }
-  // Cached = just starting up from disk; WebLLM's raw "Loading model from cache[1/30]…" text reads like an install.
-  const cached = NATIVE || await isCached(id).catch(() => false);
+  // WebLLM's raw "Loading model from cache[1/30]…" reads like an install. Its text says whether files come from this
+  // iPad ("from cache") or the network; isCached() isn't used here because it takes 7-17 s on the iPad before loading.
   try {
     await llm.load(id, {
       contextWindow: settings.contextWindow,
       onProgress: (r) => {
-        const pct = Math.round(r.progress * 100);
+        const pct = Math.round(r.progress * 100), cached = NATIVE || !/fetch|download/i.test(r.text) || /from cache/i.test(r.text);
         const t = cached ? `Starting the AI… ${pct}%` : `Downloading the AI (one time only)… ${pct}%`;
         $('loadProgress').firstElementChild.style.width = `${pct}%`; $('loadText').textContent = t; status(cached ? t : r.text.slice(0, 90));
       },
     });
-    if (!NATIVE) { settings.modelId = id; store.saveSettings(settings); }
+    if (!NATIVE) { settings.modelId = id; settings.loadedOk = id; store.saveSettings(settings); }   // next start skips the slow isCached()
     $('modelDot').className = 'dot ready'; window.__paT = { ...(window.__paT || {}), ready: Math.round(performance.now()) };
     $('modelLabel').textContent = NATIVE ? 'Qwen2.5-Coder 1.5B' : id.replace(/-q4f(16|32)_1-MLC$/, '');
     $('loadText').textContent = `Loaded in ${llm.loadSeconds.toFixed(1)}s. Runs offline from now on.`;
