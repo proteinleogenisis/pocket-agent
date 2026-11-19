@@ -201,6 +201,7 @@ async function send(text) {
       },
     });
     if (res.kind === 'meta') { await meta(res.meta, res.input); return; }
+    if (popupMode && (res.kind === 'answer' || res.ok)) { try { localStorage.setItem('pa.popCrashes', '0'); } catch {} }
     if (res.kind === 'answer') {
       if (!live) live = addMsg('assistant', res.text || '(empty answer)'); else renderMarkdown(live, res.text);
       if (usedScreen) live.append(copyButton(res.text));
@@ -370,7 +371,8 @@ async function initModelUI() {
   const crashed = localStorage.getItem('pa.loadingModel');
   let crashes = +(localStorage.getItem('pa.loadCrashes') || 0);
   // The pop-up is often closed mid-load on purpose — that's not a crash, so it never counts there.
-  if (crashed && /[#&]ctx=/.test(location.hash)) { localStorage.removeItem('pa.loadingModel'); }
+  const inPopup = /[#&]ctx=/.test(location.hash);
+  if (crashed && inPopup) { localStorage.removeItem('pa.loadingModel'); }
   else if (crashed) { localStorage.removeItem('pa.loadingModel'); crashes = /1\.5B/.test(crashed) ? crashes + 1 : 0; localStorage.setItem('pa.loadCrashes', String(crashes)); }
   if (crashed && crashes >= 2) {
     {
@@ -385,6 +387,22 @@ async function initModelUI() {
   // reading). Held-out test at 4-bit: 81% vs 79% untrained and 66% for the 0.5B. Bigger models (Qwen3 1.7B, Qwen3.5 2B)
   // crashed this 4 GB iPad. If the 1.5B ever runs out of memory twice, the 0.5B takes over (brainFallback).
   if (!settings.ownModelSwitch2) { settings.ownModelSwitch2 = true; settings.ownModelSwitch = true; settings.userPickedModel = false; settings.brainFallback = false; try { localStorage.removeItem('pa.loadCrashes'); } catch {} store.saveSettings(settings); }
+  // Pop-up only: it has its own storage and shares GPU memory with the Safari tab, so repeated crashes switch it to 0.5B.
+  // pagehide clears pa.loadingModel, so a leftover value (or an unfinished answer) is a real crash.
+  let popFellBack = false;
+  if (inPopup) {
+    try {
+      let n = +(localStorage.getItem('pa.popCrashes') || 0);
+      if (genCrashed || crashed) n++;
+      if (n >= 2 && !settings.brainFallback) {
+        n = 0; popFellBack = true;
+        settings.brainFallback = true; settings.modelId = modelIdFor('Pocket-Agent-0.5B', gpu.f16 !== false) || modelIdFor('Qwen3-0.6B', gpu.f16 !== false); store.saveSettings(settings);
+        addMsg('err', 'The pop-up ran out of memory twice, so it now uses the lighter 0.5B brain. Close the Pocket Agent Safari tab to free memory.');
+      }
+      localStorage.setItem('pa.popCrashes', String(n));
+    } catch {}
+    if (genCrashed && !popFellBack) addMsg('err', OOM_MSG);
+  } else if (!NATIVE) watchVisibility();
   const best = settings.brainFallback ? modelIdFor('Pocket-Agent-0.5B', gpu.f16 !== false) : (modelIdFor('Pocket-Agent-1.5B', gpu.f16 !== false) || modelIdFor('Pocket-Agent-0.5B', gpu.f16 !== false));
   if (gpu.ok && !settings.brainFallback && !settings.userPickedModel && settings.modelId !== best) {
     settings.brainBest = true; settings.contextWindow = Math.max(4096, settings.contextWindow || 0); settings.modelId = best; store.saveSettings(settings);
@@ -410,6 +428,28 @@ async function initModelUI() {
     }
     sel.value = settings.modelId || sel.options[0]?.value || '';
   })();
+}
+
+// Two copies of the 1.5B (Safari tab + pop-up) don't fit in 4 GB: a hidden Safari tab gives its copy back.
+let releasedModel = null, hideTimer = 0, releasing = false;
+function watchVisibility() {
+  const release = async () => {
+    if (releasing) return; releasing = true;
+    try {
+      // An answer or a load in progress finishes first; unloading under it would kill it.
+      while (document.hidden && (busy || llm.busy || llm.loading)) await new Promise((r) => setTimeout(r, 500));
+      if (!document.hidden || popupMode || !llm.ready) return;
+      releasedModel = llm.lastLoad?.id || settings.modelId;
+      await llm.unload();
+      $('modelDot').className = 'dot'; $('modelLabel').textContent = 'AI paused (tab in background)';
+    } catch {} finally { releasing = false; }
+  };
+  document.addEventListener('visibilitychange', () => {
+    clearTimeout(hideTimer);
+    if (popupMode) return;
+    if (document.hidden) hideTimer = setTimeout(release, 1500);
+    else if (releasedModel) { const id = releasedModel; releasedModel = null; loadModel(id); }
+  });
 }
 
 // Native iPad app: the 1.5B model runs in llama.cpp (Metal) and loads automatically.
@@ -438,10 +478,16 @@ async function loadModel(id) {
       new Promise((r) => setTimeout(r, 20000)),
     ]);
   }
+  // Cached = just starting up from disk; WebLLM's raw "Loading model from cache[1/30]…" text reads like an install.
+  const cached = NATIVE || await isCached(id).catch(() => false);
   try {
     await llm.load(id, {
       contextWindow: settings.contextWindow,
-      onProgress: (r) => { $('loadProgress').firstElementChild.style.width = `${Math.round(r.progress * 100)}%`; $('loadText').textContent = r.text; status(r.text.slice(0, 90)); },
+      onProgress: (r) => {
+        const pct = Math.round(r.progress * 100);
+        const t = cached ? `Starting the AI… ${pct}%` : `Downloading the AI (one time only)… ${pct}%`;
+        $('loadProgress').firstElementChild.style.width = `${pct}%`; $('loadText').textContent = t; status(cached ? t : r.text.slice(0, 90));
+      },
     });
     if (!NATIVE) { settings.modelId = id; store.saveSettings(settings); }
     $('modelDot').className = 'dot ready'; window.__paT = { ...(window.__paT || {}), ready: Math.round(performance.now()) };
@@ -696,6 +742,8 @@ function hardwareKeyboardFirst() {
   i.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== i) i.setAttribute('inputmode', 'none'); }, 0));
 }
 
+let genCrashed = false;
+const OOM_MSG = 'Pocket Agent ran out of memory during the last answer and reloaded. Close other heavy apps or Safari tabs (including another Pocket Agent tab) and try again.';
 async function boot() {
   hardwareKeyboardFirst();
   bind();
@@ -703,8 +751,10 @@ async function boot() {
   // If the last answer never finished, iPadOS most likely ran out of memory and reloaded the app.
   try {
     if (localStorage.getItem('pa.generating')) {
+      genCrashed = true;   // captured first: the pop-up fallback in initModelUI needs this signal
       localStorage.removeItem('pa.generating');
-      addMsg('err', 'The iPad ran out of memory during the last answer and reloaded Pocket Agent. Tip: in ⚙︎ Settings use Qwen2.5-Coder 0.5B with a 1k context window, and close other heavy apps.');
+      // In the pop-up, initModelUI decides (it may show the fallback message instead).
+      if (!/[#&]ctx=/.test(location.hash)) addMsg('err', OOM_MSG);
     }
   } catch {}
   $('input').focus();
