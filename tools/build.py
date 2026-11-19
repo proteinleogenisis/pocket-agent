@@ -3,7 +3,7 @@
 import hashlib, json, os, shutil, subprocess, sys, tempfile
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 os.chdir(root)
-skip_dirs = ('.git', 'tests', 'tools', 'node_modules', 'models')
+skip_dirs = ('.git', '.claude', 'tests', 'tools', 'node_modules', 'models')
 files = []
 for d, _, fs in os.walk('.'):
     rel = os.path.relpath(d, '.')
