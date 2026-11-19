@@ -23,7 +23,8 @@ if shutil.which('node'):
     if bad: sys.exit('Syntax errors:\n' + '\n'.join(bad))
 h = hashlib.sha256()
 for p in files: h.update(p.encode()); h.update(open(p, 'rb').read())
-ver = h.hexdigest()[:12]
 tpl = open('tools/sw.template.js').read()
+h.update(tpl.encode())   # a change to the worker itself is a new version too
+ver = h.hexdigest()[:12]
 open('sw.js', 'w').write(tpl.replace('__VERSION__', ver).replace('__FILES__', json.dumps(['./'] + files, indent=2)))
 print(f'sw.js: {len(files)} files, version {ver}')
