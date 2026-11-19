@@ -2,6 +2,7 @@
 // Weights download once from Hugging Face and are cached on-device (Cache API).
 // Prompts and outputs never leave the device.
 import { CreateWebWorkerMLCEngine, prebuiltAppConfig, hasModelInCache, deleteModelAllInfoInCache } from '../vendor/web-llm/index.js';
+import { pruneCaches } from './prune.js';
 
 // Candidates sized for a 4 GB iPad. VRAM figures come from WebLLM's config (at 4k context).
 export const CANDIDATES = [
@@ -65,6 +66,15 @@ export function modelIdFor(base, f16) {
   return APP_CONFIG.model_list.find(m => m.model_id === id) ? id : null;
 }
 export function modelRecord(id) { return APP_CONFIG.model_list.find(m => m.model_id === id); }
+
+// Delete cached files of models the app no longer offers (Cache API only, no network).
+export async function pruneOldModels(keepIds) {
+  try {
+    if (typeof caches === 'undefined') return { deleted: 0 };
+    const keep = keepIds || CANDIDATES.flatMap((c) => [modelIdFor(c.base, true), modelIdFor(c.base, false)]).filter(Boolean);
+    return await pruneCaches(caches, APP_CONFIG.model_list, keep, typeof location !== 'undefined' ? location.href : undefined);
+  } catch { return { deleted: 0 }; }
+}
 
 export async function isCached(id) { try { return await hasModelInCache(id, APP_CONFIG); } catch { return false; } }
 export async function deleteCached(id) { await deleteModelAllInfoInCache(id, APP_CONFIG); }
