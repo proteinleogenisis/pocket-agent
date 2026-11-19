@@ -1,4 +1,4 @@
-import { llm, CANDIDATES, probeGPU, modelIdFor, modelRecord, isCached, deleteCached, diagnoseNetwork, isMirrored, NATIVE, OWN_MODEL, OWN_MODEL_15 } from './llm.js';
+import { llm, CANDIDATES, probeGPU, modelIdFor, modelRecord, isCached, deleteCached, diagnoseNetwork, isMirrored, NATIVE, OWN_MODEL, OWN_MODEL_15, pruneOldModels } from './llm.js';
 import { handle, runTool, TOOLS, permissionFor, route, ROUTER_TESTS, FREEDOM } from './agent.js';
 import { analyzeImage, toContext, warmOCR } from './ocr.js';
 import { warmPython } from './sandbox.js';
@@ -496,6 +496,8 @@ async function loadModel(id) {
     $('modelLabel').textContent = NATIVE ? 'Qwen2.5-Coder 1.5B' : id.replace(/-q4f(16|32)_1-MLC$/, '');
     $('loadText').textContent = `Loaded in ${llm.loadSeconds.toFixed(1)}s. Runs offline from now on.`;
     requestPersist();
+    // Old brains the app no longer offers still fill the iPad's storage (~1.3 GB seen): clear them once the AI is up.
+    if (!NATIVE) setTimeout(() => pruneOldModels(), 4000);
     try { localStorage.removeItem('pa.loadingModel'); localStorage.removeItem('pa.loadCrashes'); } catch {}
   } catch (e) {
     try { localStorage.removeItem('pa.loadingModel'); } catch {}
