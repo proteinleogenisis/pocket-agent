@@ -481,7 +481,7 @@ async function loadModel(id) {
     await llm.load(id, {
       contextWindow: settings.contextWindow,
       onProgress: (r) => {
-        const pct = Math.round(r.progress * 100), cached = NATIVE || !/fetch|download/i.test(r.text) || /from cache/i.test(r.text);
+        const pct = Math.round(r.progress * 100), cached = NATIVE || !/Fetching param cache|MB fetched/i.test(r.text);   // "Start to fetch params" comes first in both cases
         const t = cached ? `Starting the AI… ${pct}%` : `Downloading the AI (one time only)… ${pct}%`;
         $('loadProgress').firstElementChild.style.width = `${pct}%`; $('loadText').textContent = t; status(cached ? t : r.text.slice(0, 90));
       },
