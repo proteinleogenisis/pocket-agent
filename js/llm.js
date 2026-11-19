@@ -121,6 +121,9 @@ class LocalLLM {
     this.engine = null; this.worker = null; this.modelId = null;
   }
 
+  // Instant, synchronous drop of the GPU copy (terminating the worker frees it); lastLoad stays, so a later request reloads it.
+  release() { this.worker?.terminate(); this.engine = null; this.worker = null; this.modelId = null; }
+
   // Rebuild the engine from the on-device copy (no download) after the GPU was lost.
   async recover() {
     if (!this.lastLoad) throw new Error('Model not loaded');

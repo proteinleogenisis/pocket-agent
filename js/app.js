@@ -432,25 +432,18 @@ async function initModelUI() {
 }
 
 // Two copies of the 1.5B (Safari tab + pop-up) don't fit in 4 GB: a hidden Safari tab gives its copy back.
-let releasedModel = null, hideTimer = 0, releasing = null;
+// It must happen synchronously in the event: Safari freezes a background tab's scripts almost at once (seen on the iPad),
+// so a timer or an await would never run and iPadOS kills the tab (or the one next to it) instead.
+let releasedModel = null;
 function watchVisibility() {
-  const release = () => releasing || (releasing = (async () => {
-    try {
-      // An answer or a load in progress finishes first; unloading under it would kill it.
-      while (document.hidden && (busy || llm.busy || llm.loading)) await new Promise((r) => setTimeout(r, 500));
-      if (!document.hidden || popupMode || !llm.ready) return;
-      releasedModel = llm.lastLoad?.id || settings.modelId;
-      await llm.unload();
-      $('modelDot').className = 'dot'; $('modelLabel').textContent = 'AI paused (tab in background)';
-    } catch {} finally { releasing = null; }
-  })());
   document.addEventListener('visibilitychange', () => {
-    clearTimeout(hideTimer);
     if (popupMode) return;
-    if (document.hidden) hideTimer = setTimeout(release, 1500);
-    else (releasing || Promise.resolve()).then(() => {   // never start loading while the unload is still running
-      if (!document.hidden && releasedModel) { const id = releasedModel; releasedModel = null; loadModel(id); }
-    });
+    if (document.hidden) {
+      if (!llm.ready || busy || llm.busy || llm.loading) return;   // never cut off an answer or a load
+      releasedModel = llm.lastLoad?.id || settings.modelId;
+      llm.release();
+      $('modelDot').className = 'dot'; $('modelLabel').textContent = 'AI paused (tab in background)';
+    } else if (releasedModel) { const id = releasedModel; releasedModel = null; loadModel(id); }
   });
 }
 
